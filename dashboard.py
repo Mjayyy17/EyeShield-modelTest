@@ -3,9 +3,11 @@ Dashboard module for EyeShield EMR application.
 Contains main application window and dashboard functionality.
 """
 
+import random
+
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QStackedWidget, QGroupBox
+    QStackedWidget, QGroupBox, QMessageBox
 )
 from PySide6.QtCore import Qt
 
@@ -59,7 +61,7 @@ class EyeShieldApp(QMainWindow):
             label.setStyleSheet("font-size: 10px; color: #495057; margin-top: 0px;")
             v.addWidget(btn)
             v.addWidget(label)
-            return w, btn
+            return w, btn, label
 
         navs = [
             ("📊", "Dashboard"),
@@ -72,11 +74,13 @@ class EyeShieldApp(QMainWindow):
         ]
         nav_widgets = []
         nav_buttons = []
+        nav_labels = []
         for icon, text in navs:
-            w, btn = nav_button_with_label(icon, text)
+            w, btn, label = nav_button_with_label(icon, text)
             nav_layout.addWidget(w)
             nav_widgets.append(w)
             nav_buttons.append(btn)
+            nav_labels.append(label)
 
 
         # User info on the right
@@ -85,14 +89,35 @@ class EyeShieldApp(QMainWindow):
         user_info.setStyleSheet("color: #495057; font-size: 12px; font-weight: 500; margin-left: 18px; margin-right: 8px;")
         nav_layout.addWidget(user_info)
 
+        logout_btn = QPushButton("Logout")
+        logout_btn.setStyleSheet("""
+            QPushButton {
+                background: #dc3545;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background: #c82333; }
+        """)
+        logout_btn.clicked.connect(self.handle_logout)
+        nav_layout.addWidget(logout_btn)
+
         # Connect buttons
-        nav_buttons[0].clicked.connect(lambda: self.pages.setCurrentIndex(0))
-        nav_buttons[1].clicked.connect(lambda: self.pages.setCurrentIndex(1))
-        nav_buttons[2].clicked.connect(lambda: self.pages.setCurrentIndex(2))
-        nav_buttons[3].clicked.connect(lambda: self.pages.setCurrentIndex(3))
-        nav_buttons[4].clicked.connect(lambda: self.pages.setCurrentIndex(4))
-        nav_buttons[5].clicked.connect(lambda: self.pages.setCurrentIndex(5))
-        nav_buttons[6].clicked.connect(lambda: self.pages.setCurrentIndex(6))
+        nav_buttons[0].clicked.connect(lambda: self._navigate_to(0))
+        nav_buttons[1].clicked.connect(lambda: self._navigate_to(1))
+        nav_buttons[2].clicked.connect(lambda: self._navigate_to(2))
+        nav_buttons[3].clicked.connect(lambda: self._navigate_to(3))
+        nav_buttons[4].clicked.connect(lambda: self._navigate_to(4, requires_admin=True))
+        nav_buttons[5].clicked.connect(lambda: self._navigate_to(5))
+        nav_buttons[6].clicked.connect(lambda: self._navigate_to(6))
+
+        if self.role != "admin":
+            nav_buttons[4].setEnabled(False)
+            nav_buttons[4].setToolTip("Admins only")
+            nav_labels[4].setStyleSheet("font-size: 10px; color: #adb5bd; margin-top: 0px;")
 
         # (All navigation button connections are now handled via nav_buttons list above)
 
@@ -137,6 +162,25 @@ class EyeShieldApp(QMainWindow):
 
     # Sidebar removed; navigation is now in the top bar
 
+    def _navigate_to(self, index, requires_admin=False):
+        if requires_admin and self.role != "admin":
+            QMessageBox.warning(self, "Access Denied", "Only admins can access the Users tab.")
+            return
+        self.pages.setCurrentIndex(index)
+
+    def handle_logout(self):
+        reply = QMessageBox.question(
+            self,
+            "Logout",
+            "Are you sure you want to log out?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            from login import LoginWindow
+            self.login = LoginWindow()
+            self.login.show()
+            self.close()
+
     def create_dashboard_page(self):
         """Create dashboard page"""
         from datetime import datetime
@@ -171,7 +215,7 @@ class EyeShieldApp(QMainWindow):
         quote_layout = QVBoxLayout(quote_box)
         quote_layout.setContentsMargins(0, 0, 0, 0)
 
-        quote = QLabel('"The best way to find yourself is to lose yourself in the service of others."<br><span style=\'color:#007bff;\'>– Mahatma Gandhi</span>')
+        quote = QLabel(self.get_medical_quote())
         quote.setStyleSheet("font-size: 15px; color: #343a40; font-style: italic; background: white; border-radius: 8px; border: 1px solid #dee2e6; padding: 16px 24px;")
         quote.setWordWrap(True)
         quote.setTextFormat(Qt.RichText)
@@ -276,6 +320,33 @@ class EyeShieldApp(QMainWindow):
 
         # After building the page, attempt an initial refresh if data exists
         return page
+
+    @staticmethod
+    def get_medical_quote():
+        quotes = [
+            ("Wherever the art of Medicine is loved, there is also a love of Humanity.", "Hippocrates"),
+            ("Healing is a matter of time, but it is sometimes also a matter of opportunity.", "Hippocrates"),
+            ("Life is short, art is long, opportunity fleeting, experience treacherous, judgment difficult.", "Hippocrates"),
+            ("First, do no harm.", "Hippocrates (attributed)"),
+            ("Let food be thy medicine and medicine be thy food.", "Hippocrates (attributed)"),
+            ("The good physician treats the disease; the great physician treats the patient who has the disease.", "William Osler"),
+            ("Medicine is a science of uncertainty and an art of probability.", "William Osler"),
+            ("Listen to the patient, he is telling you the diagnosis.", "William Osler"),
+            ("The practice of medicine is an art, based on science.", "William Osler"),
+            ("To study the phenomena of disease without books is to sail an uncharted sea; to study books without patients is not to go to sea at all.", "William Osler"),
+            ("Cure sometimes, treat often, comfort always.", "Ambroise Pare"),
+            ("The art of medicine consists of amusing the patient while nature cures the disease.", "Voltaire"),
+            ("The best physician is also a philosopher.", "Galen (attributed)"),
+            ("In nothing do men more nearly approach the gods than in giving health to men.", "Cicero"),
+            ("The dose makes the poison.", "Paracelsus"),
+            ("In the fields of observation, chance favors the prepared mind.", "Louis Pasteur"),
+            ("Medicine is a social science, and politics is nothing else but medicine on a large scale.", "Rudolf Virchow"),
+            ("He who takes medicine and neglects diet wastes the skill of the physician.", "Hippocrates (attributed)"),
+            ("To cure a disease after it has taken hold is like digging a well after one is thirsty.", "Chinese proverb"),
+            ("A good laugh and a long sleep are the best cures in the doctor's book.", "Irish proverb"),
+        ]
+        text, author = random.choice(quotes)
+        return f'"{text}"<br><span style=\'color:#007bff;\'>- {author}</span>'
 
     def refresh_dashboard(self):
         """Refresh recent activity from patient records"""

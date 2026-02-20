@@ -11,8 +11,8 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QSpinBox, QCheckBox, QTextEdit, QCalendarWidget, QStackedWidget,
     QGridLayout
 )
-from PySide6.QtGui import QPixmap, QFont
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtGui import QPixmap, QFont, QRegularExpressionValidator
+from PySide6.QtCore import Qt, QDate, QRegularExpression
 
 
 class ScreeningPage(QWidget):
@@ -22,6 +22,8 @@ class ScreeningPage(QWidget):
         super().__init__()
         self.current_image = None
         self.patient_counter = 0
+        self.last_result_class = "Pending"
+        self.last_result_conf = "Pending"
         self.stacked_widget = QStackedWidget()
         self.init_ui()
 
@@ -32,7 +34,11 @@ class ScreeningPage(QWidget):
         main_layout.setContentsMargins(15, 15, 15, 15)
         # Unified page: Patient Info + Image Upload
         unified_page = self.create_unified_page()
-        main_layout.addWidget(unified_page)
+        self.results_page = ResultsWindow(self)
+        self.stacked_widget.addWidget(unified_page)
+        self.stacked_widget.addWidget(self.results_page)
+        main_layout.addWidget(self.stacked_widget)
+        self._setup_validators()
     def create_unified_page(self):
         container = QWidget()
         grid = QGridLayout(container)
@@ -127,6 +133,23 @@ class ScreeningPage(QWidget):
         analyze_layout.addWidget(self.btn_analyze)
         grid.addLayout(analyze_layout, 2, 1, 1, 1)
         return container
+
+    def _setup_validators(self):
+        self.name_regex = QRegularExpression(r"^[A-Za-z][A-Za-z\s\-']*$")
+        self.p_name.setValidator(QRegularExpressionValidator(self.name_regex, self))
+
+    def _validate_patient_basics(self):
+        name = self.p_name.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Patient name is required")
+            return False
+        if not self.name_regex.match(name).hasMatch():
+            QMessageBox.warning(self, "Error", "Name can only include letters, spaces, hyphens, and apostrophes")
+            return False
+        if self.p_dob.date() == self.p_dob.minimumDate():
+            QMessageBox.warning(self, "Error", "Please enter a valid Date of Birth")
+            return False
+        return True
 
     def create_patient_info_page(self):
         container = QWidget()
@@ -323,11 +346,7 @@ class ScreeningPage(QWidget):
         self.p_age.setValue(max(0, age))
 
     def validate_and_proceed(self):
-        if not self.p_name.text().strip():
-            QMessageBox.warning(self, "Error", "Patient name is required")
-            return
-        if self.p_dob.date() == self.p_dob.minimumDate():
-            QMessageBox.warning(self, "Error", "Please enter a valid Date of Birth")
+        if not self._validate_patient_basics():
             return
         dob_str = self.p_dob.date().toString("yyyy-MM-dd")
         summary = f"<b>{self.p_name.text()}</b> | ID: {self.p_id.text()} | DOB: {dob_str} | Age: {self.p_age.value()}"
@@ -368,10 +387,9 @@ class ScreeningPage(QWidget):
         self.image_label.clear()
         self.image_label.setText("No image loaded")
         self.image_label.setStyleSheet("border: 2px dashed #ccc; background-color: #f9f9f9;")
-        self.r_class.setText("—")
-        self.r_conf.setText("—")
+        self.last_result_class = "Pending"
+        self.last_result_conf = "Pending"
         self.btn_analyze.setEnabled(False)
-        self.btn_save.setEnabled(False)
         self.stacked_widget.setCurrentIndex(0)
 
     def upload_image(self):
@@ -384,12 +402,24 @@ class ScreeningPage(QWidget):
             self.image_label.setPixmap(pixmap)
             self.btn_analyze.setEnabled(True)
     def open_results_window(self):
+        if not self._validate_patient_basics():
+            return
         if not self.current_image:
             QMessageBox.warning(self, "Error", "No image loaded")
             return
-        # Create and show results window
-        self.results_window = ResultsWindow(self.p_name.text(), self.current_image)
-        self.results_window.show()
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Details",
+            "Please confirm all details are correct before proceeding to results.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        # Show results inside the same window
+        self.last_result_class = "No DR Detected"
+        self.last_result_conf = "Confidence: 93.8%"
+        self.results_page.set_results(self.p_name.text(), self.current_image)
+        self.stacked_widget.setCurrentIndex(1)
 
     def clear_image(self):
         self.current_image = None
@@ -397,24 +427,124 @@ class ScreeningPage(QWidget):
         self.image_label.setText("No image loaded")
         self.image_label.setStyleSheet("border: 2px dashed #ccc; background-color: #f9f9f9;")
         self.btn_analyze.setEnabled(False)
+
+    def save_screening(self):
+        if not self._validate_patient_basics():
+            return
+        name = self.p_name.text().strip()
+
+        pid = self.p_id.text()
+
+        if self.p_dob.date() == self.p_dob.minimumDate():
+            dob_str = ""
+        else:
+            dob_str = self.p_dob.date().toString("yyyy-MM-dd")
+
+        age = self.p_age.value()
+        sex = self.p_sex.currentText()
+        contact = self.p_contact.text().strip()
+        eye = self.p_eye.currentText()
+        diabetes_type = self.diabetes_type.currentText()
+        duration = self.diabetes_duration.value()
+        hba1c = f"{self.hba1c.value():.1f}%"
+        prev_treatment = "Yes" if self.prev_treatment.isChecked() else "No"
+        notes = self.notes.toPlainText().strip()
+        result = self.last_result_class
+        confidence = self.last_result_conf
+
+        patient_data = [
+            pid,
+            name,
+            dob_str,
+            age if age > 0 else "",
+            sex,
+            contact,
+            eye,
+            diabetes_type if diabetes_type != "Select" else "",
+            duration,
+            hba1c,
+            prev_treatment,
+            notes,
+            result,
+            confidence,
+        ]
+
+        try:
+            if hasattr(self, "patient_records_page") and self.patient_records_page:
+                self.patient_records_page.add_patient_record(patient_data)
+        except Exception as e:
+            QMessageBox.warning(self, "Warning", f"Saved but failed to update Patient Records: {e}")
+
+        QMessageBox.information(self, "Saved", f"Screening record for {name} saved.")
+        self.reset_screening()
 class ResultsWindow(QWidget):
-    def __init__(self, patient_name, image_path):
-        super().__init__()
-        self.setWindowTitle(f"Results for {patient_name}")
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_page = parent
         self.setMinimumSize(600, 500)
         layout = QVBoxLayout(self)
-        # Heatmap placeholder
-        heatmap_label = QLabel("Heatmap")
-        heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heatmap_label.setStyleSheet("border: 2px solid #0078d7; background-color: #e6f2ff; font-size: 14pt;")
-        heatmap_pixmap = QPixmap(image_path).scaled(500, 350, Qt.AspectRatioMode.KeepAspectRatio)
-        heatmap_label.setPixmap(heatmap_pixmap)
-        layout.addWidget(heatmap_label)
-        # Explanation placeholder
-        explanation = QLabel("Explanation: No DR Detected. Confidence: 93.8%")
-        explanation.setStyleSheet("font-size: 12pt; color: #333;")
-        layout.addWidget(explanation)
+
+        self.title_label = QLabel("Results")
+        self.title_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        layout.addWidget(self.title_label)
+
+        heatmap_group = QGroupBox("Heatmap Output")
+        heatmap_layout = QVBoxLayout(heatmap_group)
+        self.heatmap_label = QLabel("Heatmap will appear here once the backend is connected.")
+        self.heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.heatmap_label.setStyleSheet("border: 2px dashed #0078d7; background-color: #e6f2ff; font-size: 11pt;")
+        self.heatmap_label.setMinimumHeight(260)
+        heatmap_layout.addWidget(self.heatmap_label)
+        layout.addWidget(heatmap_group)
+
+        explanation_group = QGroupBox("AI Explanation")
+        explanation_layout = QVBoxLayout(explanation_group)
+        self.explanation = QLabel("AI explanation will appear here once available.")
+        self.explanation.setWordWrap(True)
+        self.explanation.setStyleSheet("font-size: 11pt; color: #333;")
+        explanation_layout.addWidget(self.explanation)
+        layout.addWidget(explanation_group)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        self.btn_save = QPushButton("Save Patient")
+        self.btn_save.clicked.connect(self.save_patient)
+        button_layout.addWidget(self.btn_save)
+        self.btn_new = QPushButton("New Patient")
+        self.btn_new.clicked.connect(self.new_patient)
+        button_layout.addWidget(self.btn_new)
+        self.btn_back = QPushButton("Back to Screening")
+        self.btn_back.clicked.connect(self.go_back)
+        button_layout.addWidget(self.btn_back)
+        layout.addLayout(button_layout)
+
         layout.addStretch()
+
+    def set_results(self, patient_name, image_path):
+        if patient_name:
+            self.title_label.setText(f"Results for {patient_name}")
+        else:
+            self.title_label.setText("Results")
+        if image_path:
+            heatmap_pixmap = QPixmap(image_path).scaled(500, 350, Qt.AspectRatioMode.KeepAspectRatio)
+            self.heatmap_label.setPixmap(heatmap_pixmap)
+            self.heatmap_label.setText("")
+        else:
+            self.heatmap_label.setPixmap(QPixmap())
+            self.heatmap_label.setText("Heatmap will appear here once the backend is connected.")
+        self.explanation.setText("AI explanation will appear here once available.")
+
+    def go_back(self):
+        if self.parent_page and hasattr(self.parent_page, "stacked_widget"):
+            self.parent_page.stacked_widget.setCurrentIndex(0)
+
+    def save_patient(self):
+        if self.parent_page and hasattr(self.parent_page, "save_screening"):
+            self.parent_page.save_screening()
+
+    def new_patient(self):
+        if self.parent_page and hasattr(self.parent_page, "reset_screening"):
+            self.parent_page.reset_screening()
 
     def analyze_image(self):
         if not self.current_image:
