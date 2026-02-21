@@ -22,6 +22,8 @@ class ScreeningPage(QWidget):
         super().__init__()
         self.current_image = None
         self.patient_counter = 0
+        self.min_dob_date = QDate(1900, 1, 1)
+        self.max_dob_date = QDate.currentDate()
         self.last_result_class = "Pending"
         self.last_result_conf = "Pending"
         self.stacked_widget = QStackedWidget()
@@ -42,45 +44,67 @@ class ScreeningPage(QWidget):
     def create_unified_page(self):
         container = QWidget()
         grid = QGridLayout(container)
-        grid.setSpacing(16)
+        grid.setSpacing(14)
         grid.setContentsMargins(12, 12, 12, 12)
         # Patient Info
         patient_group = QGroupBox("Patient Information")
         patient_form = QFormLayout()
+        patient_form.setContentsMargins(12, 14, 12, 12)
+        patient_form.setHorizontalSpacing(14)
+        patient_form.setVerticalSpacing(10)
+        patient_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        patient_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         self.p_id = QLineEdit()
         self.p_id.setReadOnly(True)
+        self.p_id.setMinimumHeight(34)
         self.generate_patient_id()
         patient_form.addRow("Patient ID:", self.p_id)
         self.p_name = QLineEdit()
         self.p_name.setPlaceholderText("Full name")
+        self.p_name.setMinimumHeight(34)
         patient_form.addRow("Name:", self.p_name)
-        self.p_dob = QDateEdit()
-        self.p_dob.setCalendarPopup(True)
-        self.p_dob.setDisplayFormat("yyyy-MM-dd")
-        custom_calendar = QCalendarWidget()
-        custom_calendar.setGridVisible(True)
-        self.p_dob.setCalendarWidget(custom_calendar)
-        self.p_dob.setMinimumDate(QDate(2000, 1, 1))
-        self.p_dob.setSpecialValueText(" ")
-        self.p_dob.setDate(self.p_dob.minimumDate())
-        self.p_dob.dateChanged.connect(self.update_age_from_dob)
+        self.p_dob = QLineEdit()
+        self.p_dob.setPlaceholderText("dd/mm/yyyy")
+        self.p_dob.setMaxLength(10)
+        self.p_dob.setMinimumHeight(34)
+        self._dob_default_style = """
+            QLineEdit {
+                color: #212529;
+                background: #ffffff;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+        """
+        self._dob_invalid_style = """
+            QLineEdit {
+                color: #212529;
+                background: #fff5f5;
+                border: 1px solid #dc3545;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+        """
+        self.p_dob.setStyleSheet(self._dob_default_style)
+        self.p_dob.textChanged.connect(self._on_dob_text_changed)
         patient_form.addRow("Date of Birth:", self.p_dob)
         self.p_age = QSpinBox()
         self.p_age.setRange(0, 120)
         self.p_age.setSuffix(" years")
         self.p_age.setReadOnly(True)
+        self.p_age.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.p_age.setSpecialValueText(" ")
         self.p_age.setValue(0)
+        self.p_age.setMinimumHeight(34)
         patient_form.addRow("Age:", self.p_age)
         self.p_sex = QComboBox()
-        self.p_sex.addItems(["", "Male", "Female", "Other"])
+        self.p_sex.addItems(["", "Male", "Female", "Prefer not to say"])
+        self.p_sex.setMinimumHeight(34)
         patient_form.addRow("Sex:", self.p_sex)
         self.p_contact = QLineEdit()
         self.p_contact.setPlaceholderText("Phone or Email")
+        self.p_contact.setMinimumHeight(34)
         patient_form.addRow("Contact:", self.p_contact)
-        self.p_eye = QComboBox()
-        self.p_eye.addItems(["", "Both Eyes", "Left Eye", "Right Eye"])
-        patient_form.addRow("Eye(s):", self.p_eye)
         patient_group.setLayout(patient_form)
         # Clinical History
         clinical_group = QGroupBox("Clinical History")
@@ -96,6 +120,7 @@ class ScreeningPage(QWidget):
         self.hba1c.setRange(4.0, 15.0)
         self.hba1c.setDecimals(1)
         self.hba1c.setSuffix(" %")
+        self.hba1c.setValue(7.0)
         clinical_form.addRow("HbA1c:", self.hba1c)
         self.prev_treatment = QCheckBox("Previous DR Treatment")
         clinical_form.addRow("", self.prev_treatment)
@@ -124,6 +149,8 @@ class ScreeningPage(QWidget):
         grid.addWidget(patient_group, 0, 0)
         grid.addWidget(clinical_group, 1, 0)
         grid.addWidget(image_group, 0, 1, 2, 1)
+        grid.setRowStretch(0, 1)
+        grid.setRowStretch(1, 1)
         # Analyze Button at bottom right
         analyze_layout = QHBoxLayout()
         analyze_layout.addStretch()
@@ -140,16 +167,89 @@ class ScreeningPage(QWidget):
 
     def _validate_patient_basics(self):
         name = self.p_name.text().strip()
+        dob_date = self._get_dob_date()
+        sex = self.p_sex.currentText().strip()
+        contact = self.p_contact.text().strip()
+
+        missing_fields = []
         if not name:
-            QMessageBox.warning(self, "Error", "Patient name is required")
+            missing_fields.append("Name")
+        if not dob_date.isValid():
+            missing_fields.append("Date of Birth")
+        if not sex:
+            missing_fields.append("Sex")
+        if not contact:
+            missing_fields.append("Contact")
+
+        if missing_fields:
+            QMessageBox.warning(
+                self,
+                "Missing Information",
+                "Please fill up every patient information field.\n\nMissing: " + ", ".join(missing_fields),
+            )
             return False
+
         if not self.name_regex.match(name).hasMatch():
             QMessageBox.warning(self, "Error", "Name can only include letters, spaces, hyphens, and apostrophes")
             return False
-        if self.p_dob.date() == self.p_dob.minimumDate():
-            QMessageBox.warning(self, "Error", "Please enter a valid Date of Birth")
-            return False
         return True
+
+    def _on_dob_text_changed(self, text):
+        digits = "".join(ch for ch in text if ch.isdigit())[:8]
+        if len(digits) <= 2:
+            formatted = digits
+        elif len(digits) <= 4:
+            formatted = f"{digits[:2]}/{digits[2:]}"
+        else:
+            formatted = f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
+
+        if formatted != text:
+            self.p_dob.blockSignals(True)
+            self.p_dob.setText(formatted)
+            self.p_dob.blockSignals(False)
+            self.p_dob.setCursorPosition(len(formatted))
+
+        self._update_dob_input_style(digits)
+
+        self.update_age_from_dob(self._get_dob_date())
+
+    def _update_dob_input_style(self, digits):
+        has_invalid_value = False
+
+        if len(digits) >= 1 and int(digits[0]) > 3:
+            has_invalid_value = True
+
+        if len(digits) >= 2:
+            day = int(digits[:2])
+            if day < 1 or day > 31:
+                has_invalid_value = True
+
+        if len(digits) >= 3 and int(digits[2]) > 1:
+            has_invalid_value = True
+
+        if len(digits) >= 4:
+            month = int(digits[2:4])
+            if month < 1 or month > 12:
+                has_invalid_value = True
+
+        if len(digits) == 8 and not self._get_dob_date().isValid():
+            has_invalid_value = True
+
+        self.p_dob.setStyleSheet(self._dob_invalid_style if has_invalid_value else self._dob_default_style)
+
+    def _get_dob_date(self):
+        if isinstance(self.p_dob, QDateEdit):
+            date = self.p_dob.date()
+            if date == self.min_dob_date:
+                return QDate()
+        else:
+            date = QDate.fromString(self.p_dob.text().strip(), "dd/MM/yyyy")
+
+        if not date.isValid():
+            return QDate()
+        if date < self.min_dob_date or date > QDate.currentDate():
+            return QDate()
+        return date
 
     def create_patient_info_page(self):
         container = QWidget()
@@ -194,7 +294,7 @@ class ScreeningPage(QWidget):
             }
         """)
         self.p_dob.setCalendarWidget(custom_calendar)
-        self.p_dob.setMinimumDate(QDate(2000, 1, 1))
+        self.p_dob.setMinimumDate(QDate(1900, 1, 1))
         self.p_dob.setSpecialValueText(" ")
         self.p_dob.setDate(self.p_dob.minimumDate())
         self.p_dob.dateChanged.connect(self.update_age_from_dob)
@@ -204,6 +304,7 @@ class ScreeningPage(QWidget):
         self.p_age.setRange(0, 120)
         self.p_age.setSuffix(" years")
         self.p_age.setReadOnly(True)
+        self.p_age.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.p_age.setSpecialValueText(" ")
         self.p_age.setValue(0)
         patient_form.addRow("Age:", self.p_age)
@@ -336,7 +437,7 @@ class ScreeningPage(QWidget):
         self.p_id.setText(pid)
 
     def update_age_from_dob(self, date):
-        if date == self.p_dob.minimumDate():
+        if not date.isValid():
             self.p_age.setValue(0)
             return
         today = QDate.currentDate()
@@ -348,7 +449,8 @@ class ScreeningPage(QWidget):
     def validate_and_proceed(self):
         if not self._validate_patient_basics():
             return
-        dob_str = self.p_dob.date().toString("yyyy-MM-dd")
+        dob_date = self._get_dob_date()
+        dob_str = dob_date.toString("yyyy-MM-dd") if dob_date.isValid() else ""
         summary = f"<b>{self.p_name.text()}</b> | ID: {self.p_id.text()} | DOB: {dob_str} | Age: {self.p_age.value()}"
         self.summary_label.setText(summary)
         self.stacked_widget.setCurrentIndex(1)
@@ -374,10 +476,12 @@ class ScreeningPage(QWidget):
         self.generate_patient_id()
         self.p_name.clear()
         self.p_contact.clear()
-        self.p_dob.setDate(self.p_dob.minimumDate())
+        if isinstance(self.p_dob, QDateEdit):
+            self.p_dob.setDate(self.min_dob_date)
+        else:
+            self.p_dob.clear()
         self.p_age.setValue(0)
         self.p_sex.setCurrentIndex(0)
-        self.p_eye.setCurrentIndex(0)
         self.diabetes_type.setCurrentIndex(0)
         self.diabetes_duration.setValue(0)
         self.hba1c.setValue(7.0)
@@ -398,7 +502,12 @@ class ScreeningPage(QWidget):
         )
         if path:
             self.current_image = path
-            pixmap = QPixmap(path).scaled(450, 400, Qt.AspectRatioMode.KeepAspectRatio)
+            pixmap = QPixmap(path).scaled(
+                450,
+                400,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             self.image_label.setPixmap(pixmap)
             self.btn_analyze.setEnabled(True)
     def open_results_window(self):
@@ -407,13 +516,13 @@ class ScreeningPage(QWidget):
         if not self.current_image:
             QMessageBox.warning(self, "Error", "No image loaded")
             return
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Details",
-            "Please confirm all details are correct before proceeding to results.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
+        confirm_box = QMessageBox(self)
+        confirm_box.setWindowTitle("Confirm Details")
+        confirm_box.setText("Please confirm all details are correct before proceeding to results.")
+        proceed_button = confirm_box.addButton("Proceed to Results", QMessageBox.ButtonRole.AcceptRole)
+        confirm_box.addButton("Edit Information", QMessageBox.ButtonRole.RejectRole)
+        confirm_box.exec()
+        if confirm_box.clickedButton() != proceed_button:
             return
         # Show results inside the same window
         self.last_result_class = "No DR Detected"
@@ -435,15 +544,13 @@ class ScreeningPage(QWidget):
 
         pid = self.p_id.text()
 
-        if self.p_dob.date() == self.p_dob.minimumDate():
-            dob_str = ""
-        else:
-            dob_str = self.p_dob.date().toString("yyyy-MM-dd")
+        dob_date = self._get_dob_date()
+        dob_str = dob_date.toString("yyyy-MM-dd") if dob_date.isValid() else ""
 
         age = self.p_age.value()
         sex = self.p_sex.currentText()
         contact = self.p_contact.text().strip()
-        eye = self.p_eye.currentText()
+        eye = ""
         diabetes_type = self.diabetes_type.currentText()
         duration = self.diabetes_duration.value()
         hba1c = f"{self.hba1c.value():.1f}%"
