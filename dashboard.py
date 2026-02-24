@@ -17,6 +17,7 @@ from reports import ReportsPage
 from users import UsersPage
 from settings import SettingsPage
 from help_support import HelpSupportPage
+from camera import CameraPage
 
 
 class EyeShieldApp(QMainWindow):
@@ -66,6 +67,7 @@ class EyeShieldApp(QMainWindow):
         navs = [
             ("📊", "Dashboard"),
             ("🩺", "Screening"),
+            ("📷", "Camera"),
             ("📁", "Records"),
             ("📄", "Reports"),
             ("👥", "Users"),
@@ -110,14 +112,15 @@ class EyeShieldApp(QMainWindow):
         nav_buttons[1].clicked.connect(lambda: self._navigate_to(1))
         nav_buttons[2].clicked.connect(lambda: self._navigate_to(2))
         nav_buttons[3].clicked.connect(lambda: self._navigate_to(3))
-        nav_buttons[4].clicked.connect(lambda: self._navigate_to(4, requires_admin=True))
-        nav_buttons[5].clicked.connect(lambda: self._navigate_to(5))
+        nav_buttons[4].clicked.connect(lambda: self._navigate_to(4))
+        nav_buttons[5].clicked.connect(lambda: self._navigate_to(5, requires_admin=True))
         nav_buttons[6].clicked.connect(lambda: self._navigate_to(6))
+        nav_buttons[7].clicked.connect(lambda: self._navigate_to(7))
 
         if self.role != "admin":
-            nav_buttons[4].setEnabled(False)
-            nav_buttons[4].setToolTip("Admins only")
-            nav_labels[4].setStyleSheet("font-size: 10px; color: #adb5bd; margin-top: 0px;")
+            nav_buttons[5].setEnabled(False)
+            nav_buttons[5].setToolTip("Admins only")
+            nav_labels[5].setStyleSheet("font-size: 10px; color: #adb5bd; margin-top: 0px;")
 
         # (All navigation button connections are now handled via nav_buttons list above)
 
@@ -133,6 +136,7 @@ class EyeShieldApp(QMainWindow):
 
         # Create main pages first so dashboard can query live data
         self.screening_page = ScreeningPage()
+        self.camera_page = CameraPage()
         self.patient_records_page = PatientRecordsPage()
         self.reports_page = ReportsPage()
         self.users_page = UsersPage()
@@ -151,11 +155,13 @@ class EyeShieldApp(QMainWindow):
 
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.screening_page)
+        self.pages.addWidget(self.camera_page)
         self.pages.addWidget(self.patient_records_page)
         self.pages.addWidget(self.reports_page)
         self.pages.addWidget(self.users_page)
         self.pages.addWidget(self.settings_page)
         self.pages.addWidget(self.help_support_page)
+        self.pages.currentChanged.connect(self._on_page_changed)
 
         main_layout.addWidget(self.pages)
         root_layout.addWidget(main)
@@ -168,6 +174,12 @@ class EyeShieldApp(QMainWindow):
             QMessageBox.warning(self, "Access Denied", "Only admins can access the Users tab.")
             return
         self.pages.setCurrentIndex(index)
+
+    def _on_page_changed(self, index):
+        if index == 2:
+            self.camera_page.enter_page()
+        else:
+            self.camera_page.leave_page()
 
     def handle_logout(self):
         reply = QMessageBox.question(
@@ -273,16 +285,20 @@ class EyeShieldApp(QMainWindow):
         btn_new = make_action_btn("🩺 New Patient Screening", "#28a745", "#218838")
         btn_new.clicked.connect(lambda: self.pages.setCurrentIndex(1))
 
+        btn_camera = make_action_btn("📷 Open Camera", "#fd7e14", "#e66a00")
+        btn_camera.clicked.connect(lambda: self.pages.setCurrentIndex(2))
+
         btn_records = make_action_btn("📁 Patient Records", "#007bff", "#0056b3")
-        btn_records.clicked.connect(lambda: self.pages.setCurrentIndex(2))
+        btn_records.clicked.connect(lambda: self.pages.setCurrentIndex(3))
 
         btn_reports = make_action_btn("📄 Reports", "#17a2b8", "#117a8b")
-        btn_reports.clicked.connect(lambda: self.pages.setCurrentIndex(3))
+        btn_reports.clicked.connect(lambda: self.pages.setCurrentIndex(4))
 
         btn_users = make_action_btn("👥 Users", "#6f42c1", "#563d7c")
-        btn_users.clicked.connect(lambda: self.pages.setCurrentIndex(4))
+        btn_users.clicked.connect(lambda: self.pages.setCurrentIndex(5))
 
         actions_layout.addWidget(btn_new)
+        actions_layout.addWidget(btn_camera)
         actions_layout.addWidget(btn_records)
         actions_layout.addWidget(btn_reports)
         actions_layout.addWidget(btn_users)
