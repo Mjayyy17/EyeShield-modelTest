@@ -132,19 +132,58 @@ class EyeShieldApp(QMainWindow):
             return w, btn, label
 
         navs = [
-            (self._resolve_existing_path(os.path.join(icons_dir, "dashboard.svg"), os.path.join(icons_dir, "dasboard.svg")), "Dashboard"),
-            (self._resolve_existing_path(os.path.join(icons_dir, "screening.svg")), "Screening"),
-            (self._resolve_existing_path(os.path.join(icons_dir, "camera.svg")), "Camera"),
-            (self._resolve_existing_path(os.path.join(icons_dir, "reports.svg")), "Reports"),
-            (self._resolve_existing_path(os.path.join(icons_dir, "users.svg")), "Users"),
-            (self._resolve_existing_path(os.path.join(icons_dir, "settings.svg")), "Settings"),
-            (self._resolve_existing_path(os.path.join(icons_dir, "help.svg")), "Help"),
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "dashboard.svg"), os.path.join(icons_dir, "dasboard.svg")),
+                "label": "Dashboard",
+                "page_index": 0,
+                "requires_admin": False,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "screening.svg")),
+                "label": "Screening",
+                "page_index": 1,
+                "requires_admin": False,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "camera.svg")),
+                "label": "Camera",
+                "page_index": 2,
+                "requires_admin": False,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "reports.svg")),
+                "label": "Reports",
+                "page_index": 3,
+                "requires_admin": False,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "users.svg")),
+                "label": "Users",
+                "page_index": 4,
+                "requires_admin": True,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "settings.svg")),
+                "label": "Settings",
+                "page_index": 5,
+                "requires_admin": False,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "help.svg")),
+                "label": "Help",
+                "page_index": 6,
+                "requires_admin": False,
+            },
         ]
         nav_widgets = []
         nav_buttons = []
         nav_labels = []
-        for icon_path, text in navs:
-            w, btn, label = nav_button_with_label(icon_path, text)
+        for nav_item in navs:
+            if nav_item["requires_admin"] and self.role != "admin":
+                continue
+            w, btn, label = nav_button_with_label(nav_item["icon"], nav_item["label"])
+            btn.setProperty("pageIndex", nav_item["page_index"])
+            label.setProperty("pageIndex", nav_item["page_index"])
             nav_layout.addWidget(w)
             nav_layout.addStretch(1)
             nav_widgets.append(w)
@@ -191,19 +230,12 @@ class EyeShieldApp(QMainWindow):
         logout_btn.clicked.connect(self.handle_logout)
         nav_layout.addWidget(logout_btn)
 
-        # Connect buttons
-        nav_buttons[0].clicked.connect(lambda: self._navigate_to(0))
-        nav_buttons[1].clicked.connect(lambda: self._navigate_to(1))
-        nav_buttons[2].clicked.connect(lambda: self._navigate_to(2))
-        nav_buttons[3].clicked.connect(lambda: self._navigate_to(3))
-        nav_buttons[4].clicked.connect(lambda: self._navigate_to(4, requires_admin=True))
-        nav_buttons[5].clicked.connect(lambda: self._navigate_to(5))
-        nav_buttons[6].clicked.connect(lambda: self._navigate_to(6))
-
-        if self.role != "admin":
-            nav_buttons[4].setEnabled(False)
-            nav_buttons[4].setToolTip("Admins only")
-            nav_labels[4].setStyleSheet("font-size: 10px; color: #adb5bd; margin-top: 0px; text-decoration: none; border: none;")
+        for button in nav_buttons:
+            page_index = int(button.property("pageIndex"))
+            requires_admin = page_index == 4
+            button.clicked.connect(
+                lambda checked=False, idx=page_index, admin_only=requires_admin: self._navigate_to(idx, requires_admin=admin_only)
+            )
 
         # (All navigation button connections are now handled via nav_buttons list above)
 
@@ -325,11 +357,11 @@ class EyeShieldApp(QMainWindow):
         inactive_color = "#a6adc8" if dark else "#495057"
         disabled_color = "#6c7086" if dark else "#adb5bd"
         icon_size = QSize(24, 24)
-        for i, btn in enumerate(self.nav_buttons):
+        for btn in self.nav_buttons:
             icon_path = btn.property("navIconPath") or ""
             if not btn.isEnabled():
                 color = disabled_color
-            elif i == active_index:
+            elif int(btn.property("pageIndex") or -1) == active_index:
                 color = active_color
             else:
                 color = inactive_color
@@ -500,13 +532,13 @@ class EyeShieldApp(QMainWindow):
             active_label = "font-size: 10px; color: #007bff; margin-top: 0px; text-decoration: none; border: none;"
             inactive_label = "font-size: 10px; color: #495057; margin-top: 0px; text-decoration: none; border: none;"
 
-        for i, btn in enumerate(self.nav_buttons):
-            if i == index:
+        for btn in self.nav_buttons:
+            if int(btn.property("pageIndex") or -1) == index:
                 btn.setStyleSheet(active_btn_style)
             elif btn.isEnabled():
                 btn.setStyleSheet(inactive_btn_style)
         for i, label in enumerate(self.nav_labels):
-            if i == index:
+            if int(label.property("pageIndex") or -1) == index:
                 label.setStyleSheet(active_label)
             elif self.nav_buttons[i].isEnabled():
                 label.setStyleSheet(inactive_label)
