@@ -122,6 +122,17 @@ class UserManager:
         "archived_at": "TEXT",
         "archived_by": "TEXT",
         "archive_reason": "TEXT",
+        "visual_acuity_left": "TEXT",
+        "visual_acuity_right": "TEXT",
+        "blood_pressure_systolic": "TEXT",
+        "blood_pressure_diastolic": "TEXT",
+        "fasting_blood_sugar": "TEXT",
+        "random_blood_sugar": "TEXT",
+        "diabetes_diagnosis_date": "TEXT",
+        "symptom_blurred_vision": "TEXT",
+        "symptom_floaters": "TEXT",
+        "symptom_flashes": "TEXT",
+        "symptom_vision_loss": "TEXT",
     }
     
     def __init__(self):

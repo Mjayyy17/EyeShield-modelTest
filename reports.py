@@ -242,7 +242,7 @@ class ReportsPage(QWidget):
         self._rep_title_lbl = QLabel("DR Screening Reports")
         self._rep_title_lbl.setObjectName("pageHeader")
         self._rep_title_lbl.setStyleSheet("font-size:24px;font-weight:700;color:#007bff;font-family:'Calibri','Inter','Arial';")
-        self._rep_subtitle_lbl = QLabel("Complete diabetic retinopathy screening outcomes from locally saved records")
+        self._rep_subtitle_lbl = QLabel("")
         self._rep_subtitle_lbl.setObjectName("pageSubtitle")
         self._rep_subtitle_lbl.setStyleSheet("font-size:13px;color:#6c757d;")
 
@@ -271,12 +271,12 @@ class ReportsPage(QWidget):
         top_bar.addWidget(self.report_btn)
 
         root.addLayout(top_bar)
-        root.addWidget(self._rep_subtitle_lbl)
+        self._rep_subtitle_lbl.setVisible(False)
         self.status_label = QLabel("Ready")
         self.status_label.setObjectName("statusLabel")
         root.addWidget(self.status_label)
 
-        self._controls_group = QGroupBox("Quick Filters")
+        self._controls_group = QGroupBox("")
         controls_layout = QHBoxLayout(self._controls_group)
         controls_layout.setContentsMargins(16, 16, 16, 16)
         controls_layout.setSpacing(12)
@@ -299,7 +299,7 @@ class ReportsPage(QWidget):
 
         root.addWidget(self._controls_group)
 
-        self._stats_group = QGroupBox("Summary")
+        self._stats_group = QGroupBox("")
         stats_layout = QHBoxLayout(self._stats_group)
         stats_layout.setContentsMargins(16, 16, 16, 16)
         stats_layout.setSpacing(16)
@@ -316,7 +316,7 @@ class ReportsPage(QWidget):
 
         root.addWidget(self._stats_group)
 
-        self._results_group = QGroupBox("All Screening Results")
+        self._results_group = QGroupBox("")
         results_layout = QVBoxLayout(self._results_group)
         results_layout.setContentsMargins(16, 16, 16, 16)
         results_layout.setSpacing(12)
@@ -716,16 +716,16 @@ class ReportsPage(QWidget):
         from translations import get_pack
         pack = get_pack(language)
         self._rep_title_lbl.setText(pack["rep_title"])
-        self._rep_subtitle_lbl.setText(pack["rep_subtitle"])
+        self._rep_subtitle_lbl.setText("")
         self.refresh_btn.setText(pack["rep_refresh"])
         self.export_btn.setText(pack["rep_export"])
         if self.archived_records_btn is not None:
             self.archived_records_btn.setText(pack["rep_archived"])
         if self.archive_btn is not None:
             self.archive_btn.setText(pack["rep_archive_sel"])
-        self._controls_group.setTitle(pack["rep_quick_filters"])
-        self._stats_group.setTitle(pack["rep_summary"])
-        self._results_group.setTitle(pack["rep_all_results"])
+        self._controls_group.setTitle("")
+        self._stats_group.setTitle("")
+        self._results_group.setTitle("")
         self._stat_total_title.setText(pack["rep_stat_total"])
         self._stat_unique_title.setText(pack["rep_stat_unique"])
         self._stat_no_dr_title.setText(pack["rep_stat_no_dr"])
@@ -804,6 +804,7 @@ class ReportsPage(QWidget):
         hba1c = esc(full.get("hba1c"))
         prev_treatment = esc(full.get("prev_treatment"))
         notes = esc(full.get("notes") or "")
+        notes_raw = str(full.get("notes") or "")
         result_raw = str(full.get("result") or "")
         result = esc(result_raw)
         confidence = esc(full.get("confidence"))
@@ -844,9 +845,12 @@ class ReportsPage(QWidget):
         grade_color = _DR_COL.get(result_raw, "#374151")
         summary = esc(_DR_SUM.get(result_raw, "Please consult a qualified ophthalmologist for interpretation."))
         report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
+        screened_by = esc(self.username or os.environ.get("EYESHIELD_CURRENT_USER", ""))
+        screened_by_value = screened_by if screened_by != "-" else "Unknown"
         duration_display = f"{escape(duration)} year(s)" if duration not in ("-", "") else "-"
 
         notes_value = notes or "&mdash;"
+        notes_compact = escape((notes_raw[:220] + "...") if len(notes_raw) > 220 else notes_raw) or "&mdash;"
         confidence_value = confidence if confidence != "-" else "&mdash;"
         diabetes_type_value = diabetes_type if diabetes_type != "-" else "&mdash;"
         hba1c_value = hba1c if hba1c != "-" else "&mdash;"
@@ -865,36 +869,61 @@ body {{
     background: #ffffff;
     font-family: 'Inter', 'Roboto', 'Open Sans', 'Segoe UI', Arial, sans-serif;
     font-size: 11pt;
-    line-height: 1.4;
+    line-height: 1.5;
 }}
-.report {{ padding: 0 26px 22px 26px; }}
+.report {{ padding: 0 20px 14px 20px; }}
 .header {{
     background: #eef4fb;
     color: #1f2937;
-    padding: 14px 26px 12px 26px;
+    padding: 14px 20px 12px 20px;
     border-bottom: 2px solid #d7e3f1;
 }}
 .header h1 {{
     margin: 0;
-    font-size: 20pt;
+    font-size: 17pt;
     font-weight: 700;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.3px;
     color: #1f2937;
 }}
 .header p {{ margin: 4px 0 0 0; font-size: 10pt; color: #475569; }}
-.section {{ margin-top: 12px; padding-top: 10px; border-top: 1px solid #dbe3ea; }}
-.section-title {{ margin: 0 0 8px 0; font-size: 15pt; color: #0f3d66; font-weight: 700; }}
-table.grid {{ width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11pt; }}
-table.grid td {{ border: 1px solid #dce4ec; padding: 6px 8px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }}
-td.label {{ width: 20%; background: #f6f9fc; font-weight: 700; color: #334155; }}
-td.value {{ width: 30%; font-weight: 400; color: #111827; }}
-.result-pill {{ color: {grade_color}; font-weight: 700; font-size: 13pt; }}
+.section {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid #dbe3ea; }}
+.section-title {{ margin: 0 0 10px 0; font-size: 13pt; color: #0f3d66; font-weight: 700; }}
+.cards {{ width: 100%; }}
+.card {{
+    display: inline-block;
+    width: 48.7%;
+    vertical-align: top;
+    border: 1px solid #dce4ec;
+    border-radius: 8px;
+    background: #fbfdff;
+    margin-right: 2.6%;
+}}
+.card:last-child {{ margin-right: 0; }}
+.card-title {{
+    margin: 0;
+    padding: 9px 12px;
+    font-size: 11pt;
+    font-weight: 700;
+    color: #0f3d66;
+    border-bottom: 1px solid #e6edf5;
+    background: #f3f8ff;
+}}
+.fact {{
+    padding: 8px 12px;
+    border-bottom: 1px solid #edf2f8;
+    font-size: 10.5pt;
+    line-height: 1.5;
+}}
+.fact:last-child {{ border-bottom: none; }}
+.fact-label {{ color: #334155; font-weight: 600; }}
+.fact-value {{ color: #111827; font-weight: 500; }}
+.result-pill {{ color: {grade_color}; font-weight: 700; font-size: 11.5pt; }}
 table.images {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
 table.images td {{ width: 50%; border: 1px solid #dce4ec; vertical-align: top; text-align: center; padding: 8px; }}
-.image-caption {{ margin-top: 6px; color: #475569; font-size: 10pt; font-weight: 600; }}
-.image-empty {{ min-height: 150px; padding-top: 56px; color: #64748b; border: 1px dashed #cbd5e1; background: #f8fafc; }}
-.analysis {{ border: 1px solid #dce4ec; background: #f8fbff; padding: 9px 10px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }}
-.footer-note {{ margin-top: 14px; padding-top: 8px; border-top: 1px solid #dce4ec; font-size: 9.5pt; color: #4b5563; }}
+.image-caption {{ margin-top: 6px; color: #475569; font-size: 9.5pt; font-weight: 600; }}
+.image-empty {{ min-height: 120px; padding-top: 44px; font-size: 9.5pt; color: #64748b; border: 1px dashed #cbd5e1; background: #f8fafc; }}
+.analysis {{ border: 1px solid #dce4ec; background: #f8fbff; padding: 12px 14px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; font-size: 10.5pt; line-height: 1.6; }}
+.footer-note {{ margin-top: 12px; padding-top: 8px; border-top: 1px solid #dce4ec; font-size: 9.5pt; color: #4b5563; line-height: 1.5; }}
 .brand {{ text-align: center; margin-top: 8px; font-size: 8.5pt; color: #94a3b8; }}
 </style></head><body>
 <div class="header">
@@ -904,42 +933,32 @@ table.images td {{ width: 50%; border: 1px solid #dce4ec; vertical-align: top; t
 <div class="report">
 
 <div class="section">
-    <h2 class="section-title">Patient Information</h2>
-    <table class="grid">
-        <tr>
-            <td class="label">Patient Name</td><td class="value">{name}</td>
-            <td class="label">Patient Record</td><td class="value">{patient_id}</td>
-        </tr>
-        <tr>
-            <td class="label">Date of Birth</td><td class="value">{birthdate}</td>
-            <td class="label">Age</td><td class="value">{age}</td>
-        </tr>
-        <tr>
-            <td class="label">Sex</td><td class="value">{sex}</td>
-            <td class="label">Contact Number</td><td class="value">{contact_value}</td>
-        </tr>
-        <tr>
-            <td class="label">Eye(s) Screened</td><td class="value">{eye_value}</td>
-            <td class="label">Report Date</td><td class="value">{report_date}</td>
-        </tr>
-    </table>
+    <div class="cards">
+        <div class="card">
+            <h3 class="card-title">Patient Information</h3>
+            <div class="fact"><span class="fact-label">Patient Name:</span> <span class="fact-value">{name}</span></div>
+            <div class="fact"><span class="fact-label">Patient Record:</span> <span class="fact-value">{patient_id}</span></div>
+            <div class="fact"><span class="fact-label">Date of Birth:</span> <span class="fact-value">{birthdate}</span></div>
+            <div class="fact"><span class="fact-label">Age:</span> <span class="fact-value">{age}</span></div>
+            <div class="fact"><span class="fact-label">Sex:</span> <span class="fact-value">{sex}</span></div>
+            <div class="fact"><span class="fact-label">Contact:</span> <span class="fact-value">{contact_value}</span></div>
+            <div class="fact"><span class="fact-label">Eye Screened:</span> <span class="fact-value">{eye_value}</span></div>
+            <div class="fact"><span class="fact-label">Report Date:</span> <span class="fact-value">{report_date}</span></div>
+            <div class="fact"><span class="fact-label">Diabetes Type:</span> <span class="fact-value">{diabetes_type_value}</span></div>
+            <div class="fact"><span class="fact-label">Duration:</span> <span class="fact-value">{duration_display}</span></div>
+            <div class="fact"><span class="fact-label">HbA1c:</span> <span class="fact-value">{hba1c_value}</span></div>
+            <div class="fact"><span class="fact-label">Previous Treatment:</span> <span class="fact-value">{prev_treatment_value}</span></div>
+        </div><div class="card">
+            <h3 class="card-title">Screening Results</h3>
+            <div class="fact"><span class="fact-label">Classification:</span> <span class="fact-value"><span class="result-pill">{result}</span></span></div>
+            <div class="fact"><span class="fact-label">Confidence:</span> <span class="fact-value">{confidence_value}</span></div>
+            <div class="fact"><span class="fact-label">Recommendation:</span> <span class="fact-value">{recommendation}</span></div>
+        </div>
+    </div>
 </div>
 
 <div class="section">
-    <h2 class="section-title">Screening Results</h2>
-    <table class="grid">
-        <tr>
-            <td class="label">Classification</td><td class="value" colspan="3"><span class="result-pill">{result}</span></td>
-        </tr>
-        <tr>
-            <td class="label">Confidence</td><td class="value">{confidence_value}</td>
-            <td class="label">Recommendation</td><td class="value">{recommendation}</td>
-        </tr>
-    </table>
-</div>
-
-<div class="section">
-    <h2 class="section-title">Image / Scan Results</h2>
+    <h2 class="section-title">Image Results</h2>
     <table class="images">
         <tr>
             <td>{source_img_html}<div class="image-caption">Source Fundus Image</div></td>
@@ -949,29 +968,15 @@ table.images td {{ width: 50%; border: 1px solid #dce4ec; vertical-align: top; t
 </div>
 
 <div class="section">
-    <h2 class="section-title">Clinical Notes or Analysis</h2>
-    <table class="grid">
-        <tr>
-            <td class="label">Diabetes Type</td><td class="value">{diabetes_type_value}</td>
-            <td class="label">Duration</td><td class="value">{duration_display}</td>
-        </tr>
-        <tr>
-            <td class="label">HbA1c</td><td class="value">{hba1c_value}</td>
-            <td class="label">Previous Treatment</td><td class="value">{prev_treatment_value}</td>
-        </tr>
-        <tr>
-            <td class="label">Clinical Notes</td><td class="value" colspan="3">{notes_value}</td>
-        </tr>
-    </table>
+    <h2 class="section-title">Clinical Analysis</h2>
+    <div class="card" style="display:block; width:100%; margin-right:0;">
+        <div class="fact"><span class="fact-label">Clinical Notes:</span> <span class="fact-value">{notes_compact}</span></div>
+    </div>
     <div class="analysis" style="margin-top: 8px;">{summary}</div>
 </div>
 
-<div class="section">
-    <h2 class="section-title">Final Assessment / Recommendation</h2>
-    <div class="analysis">{recommendation}</div>
-</div>
-
 <div class="footer-note">
+Screened by: {screened_by_value}<br>
 This report supports clinical decision-making and does not replace professional medical evaluation.
 </div>
 <div class="brand">EyeShield EMR</div>

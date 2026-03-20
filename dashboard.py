@@ -11,7 +11,7 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QStackedWidget, QGroupBox, QMessageBox, QGridLayout
+    QStackedWidget, QGroupBox, QMessageBox, QGridLayout, QProgressBar, QSizePolicy
 )
 from PySide6.QtCore import Qt, QSize, QByteArray
 from PySide6.QtGui import QIcon, QPixmap, QImage, QPainter, QFont
@@ -642,12 +642,12 @@ class EyeShieldApp(QMainWindow):
             self.welcome_label.setText(f"{pack['dash_welcome']}, {self.username}")
 
         # Dashboard section headers
-        if hasattr(self, "_dash_activity_title_lbl"):
-            self._dash_activity_title_lbl.setText(pack["dash_recent"])
+        if hasattr(self, "_dash_severity_title_lbl"):
+            self._dash_severity_title_lbl.setText("SCREENED PATIENTS")
         if hasattr(self, "_dash_actions_title_lbl"):
             self._dash_actions_title_lbl.setText(pack["dash_actions_title"])
-        if hasattr(self, "_dash_insight_title_lbl"):
-            self._dash_insight_title_lbl.setText(pack["dash_insight_title"])
+        if hasattr(self, "_dash_snapshot_title_lbl"):
+            self._dash_snapshot_title_lbl.setText("SCREENING SNAPSHOT")
 
         # Dashboard quick-action buttons
         if hasattr(self, "_dash_btn_new"):
@@ -655,16 +655,9 @@ class EyeShieldApp(QMainWindow):
         if hasattr(self, "_dash_btn_reports"):
             self._dash_btn_reports.setText(pack["dash_btn_reports"])
 
-        # Dashboard empty-state label
-        if hasattr(self, "empty_activity_label"):
-            self.empty_activity_label.setText(pack["dash_empty"])
-
         # KPI card title labels (stored with objectName pattern)
         kpi_map = {
             "kpiTotal": "dash_kpi_total",
-            "kpiFlagged": "dash_kpi_flagged",
-            "kpiPending": "dash_kpi_pending",
-            "kpiConf": "dash_kpi_conf",
         }
         for obj_name, key in kpi_map.items():
             title_w = self.findChild(QLabel, f"{obj_name}_title")
@@ -719,7 +712,7 @@ class EyeShieldApp(QMainWindow):
         self.close()
 
     def create_dashboard_page(self):
-        """Create the redesigned clinician-focused dashboard page."""
+        """Create the dashboard page layout."""
         page = QWidget()
         page.setObjectName("dashboardPage")
         page.setStyleSheet("QWidget#dashboardPage { background: #f8f9fa; }")
@@ -727,10 +720,7 @@ class EyeShieldApp(QMainWindow):
         layout.setContentsMargins(24, 18, 24, 18)
         layout.setSpacing(14)
 
-        # ── Colour constants (light-theme defaults; dark overridden in refresh) ──
-        # These are used here for initial build; refresh_dashboard re-applies them.
-
-        # ── 0. WELCOME ROW (greeting + role left, date right) ────────
+        # Welcome row
         self.welcome_label = QLabel(f"Welcome back, {self.username}")
         self.welcome_label.setObjectName("welcomeGreeting")
         self.welcome_label.setStyleSheet(
@@ -761,15 +751,15 @@ class EyeShieldApp(QMainWindow):
         welcome_row.addWidget(self.dashboard_date_label, 0, Qt.AlignVCenter)
         layout.addLayout(welcome_row)
 
-        # ── KPI STRIP (4 equal cards) ───────────────────────────────────
+        # Top metrics row
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(14)
 
         def make_kpi_card(object_name, title_text, accent):
-            """Build a single KPI card with title, big value, and subtitle."""
+            """Build a single KPI card with title, value, and secondary line."""
             card = QWidget()
             card.setObjectName(object_name)
-            card.setMinimumHeight(110)
+            card.setMinimumHeight(122)
             card.setStyleSheet(f"""
                 QWidget#{object_name} {{
                     background: white;
@@ -790,7 +780,7 @@ class EyeShieldApp(QMainWindow):
             )
             value = QLabel("—")
             value.setObjectName(f"{object_name}_value")
-            value.setStyleSheet("font-size: 34px; font-weight: 700; color: #212529; background: transparent;")
+            value.setStyleSheet("font-size: 32px; font-weight: 700; color: #212529; background: transparent;")
 
             subtitle = QLabel("")
             subtitle.setObjectName(f"{object_name}_sub")
@@ -806,114 +796,125 @@ class EyeShieldApp(QMainWindow):
         card_total, self.total_screenings_value, self.total_sub = \
             make_kpi_card("kpiTotal", "TOTAL SCREENINGS", "#0066cc")
 
-        # Card 2: Flagged for Review  (the mission-critical number)
-        card_flagged, self.high_attention_value, self.high_attention_hint = \
-            make_kpi_card("kpiFlagged", "FLAGGED FOR REVIEW", "#d32f2f")
+        # Card 2: No DR Cases
+        card_patients, self.unique_patients_value, self.unique_patients_sub = \
+            make_kpi_card("kpiPatients", "NO DR CASES", "#2e7d32")
 
-        # Card 3: Pending Review
-        card_pending, self.pending_value, self.pending_sub = \
-            make_kpi_card("kpiPending", "PENDING REVIEW", "#ed6c02")
+        # Card 3: Abnormal Cases
+        card_abnormal, self.abnormal_cases_value, self.abnormal_cases_sub = \
+            make_kpi_card("kpiAbnormal", "ABNORMAL CASES", "#f59e0b")
 
-        # Card 4: Average Confidence (with progress bar below value)
-        card_conf, self.avg_confidence_value, self.conf_sub = \
-            make_kpi_card("kpiConf", "MODEL CONFIDENCE", "#0066cc")
-
-        # Add a visual progress bar under the confidence value
-        self.conf_bar_track = QWidget()
-        self.conf_bar_track.setFixedHeight(6)
-        self.conf_bar_track.setStyleSheet(
-            "background: #e9ecef; border-radius: 3px;"
-        )
-        self.conf_bar_fill = QWidget(self.conf_bar_track)
-        self.conf_bar_fill.setFixedHeight(6)
-        self.conf_bar_fill.setStyleSheet(
-            "background: #0066cc; border-radius: 3px;"
-        )
-        self.conf_bar_fill.setFixedWidth(0)
-        card_conf.layout().insertWidget(3, self.conf_bar_track)
+        # Card 4: High Risk Cases
+        card_high_risk, self.high_risk_cases_value, self.high_risk_cases_sub = \
+            make_kpi_card("kpiHighRisk", "HIGH RISK CASES", "#dc3545")
 
         kpi_row.addWidget(card_total, 1)
-        kpi_row.addWidget(card_flagged, 1)
-        kpi_row.addWidget(card_pending, 1)
-        kpi_row.addWidget(card_conf, 1)
+        kpi_row.addWidget(card_patients, 1)
+        kpi_row.addWidget(card_abnormal, 1)
+        kpi_row.addWidget(card_high_risk, 1)
         layout.addLayout(kpi_row)
 
-        # ── 3. MAIN CONTENT AREA (two-column) ──────────────────────────
+        # Main content area
         content_row = QHBoxLayout()
         content_row.setSpacing(14)
 
-        # ── Left: Recent Screenings ──
-        activity_card = QWidget()
-        activity_card.setObjectName("activityCard")
-        activity_card.setMinimumHeight(260)
-        activity_card.setStyleSheet("""
-            QWidget#activityCard {
+        # Left: Severity distribution chart card
+        severity_card = QWidget()
+        severity_card.setObjectName("severityCard")
+        severity_card.setMinimumHeight(410)
+        severity_card.setStyleSheet("""
+            QWidget#severityCard {
                 background: white;
                 border: 1px solid #dee2e6;
                 border-radius: 8px;
             }
         """)
-        activity_v = QVBoxLayout(activity_card)
-        activity_v.setContentsMargins(16, 14, 16, 14)
-        activity_v.setSpacing(8)
+        severity_v = QVBoxLayout(severity_card)
+        severity_v.setContentsMargins(18, 10, 18, 16)
+        severity_v.setSpacing(10)
 
-        activity_header = QHBoxLayout()
-        self._dash_activity_title_lbl = QLabel("RECENT SCREENINGS")
-        self._dash_activity_title_lbl.setStyleSheet(
+        self._dash_severity_title_lbl = QLabel("SCREENED PATIENTS")
+        self._dash_severity_title_lbl.setStyleSheet(
             "color: #6c757d; font-size: 11px; font-weight: 700;"
             "letter-spacing: 0.5px; text-transform: uppercase; background: transparent;"
         )
-        activity_header.addWidget(self._dash_activity_title_lbl)
-        activity_header.addStretch()
+        severity_v.addWidget(self._dash_severity_title_lbl)
 
-        self.activity_count_label = QLabel("")
-        self.activity_count_label.setStyleSheet(
-            "color: #6c757d; font-size: 11px; background: transparent;"
-        )
-        activity_header.addWidget(self.activity_count_label)
-        activity_v.addLayout(activity_header)
+        scale_row = QWidget()
+        scale_row_layout = QHBoxLayout(scale_row)
+        scale_row_layout.setContentsMargins(0, 0, 0, 0)
+        scale_row_layout.setSpacing(8)
 
-        # Column headers row
-        col_header = QWidget()
-        col_header.setObjectName("colHeader")
-        col_header.setFixedHeight(26)
-        col_header.setStyleSheet(
-            "QWidget#colHeader { background: #f1f3f5; border-radius: 4px; }"
-        )
-        ch_layout = QHBoxLayout(col_header)
-        ch_layout.setContentsMargins(8, 0, 8, 0)
-        ch_layout.setSpacing(0)
-        header_style = "font-size: 10px; font-weight: 700; color: #868e96; background: transparent; text-transform: uppercase;"
-        for text, stretch in [("", 0), ("Patient ID", 2), ("Name", 3), ("Result", 3), ("Confidence", 2)]:
-            lbl = QLabel(text)
-            lbl.setStyleSheet(header_style)
-            if stretch == 0:
-                lbl.setFixedWidth(16)
-            ch_layout.addWidget(lbl, stretch)
-        self.col_header_widget = col_header
-        activity_v.addWidget(col_header)
+        scale_left_spacer = QWidget()
+        scale_left_spacer.setFixedWidth(124)
+        scale_left_spacer.setStyleSheet("background: transparent;")
+        scale_row_layout.addWidget(scale_left_spacer)
 
-        # Scrollable rows container
-        self.activity_rows_widget = QWidget()
-        self.activity_rows_widget.setStyleSheet("background: transparent;")
-        self.activity_rows_layout = QVBoxLayout(self.activity_rows_widget)
-        self.activity_rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.activity_rows_layout.setSpacing(2)
-        activity_v.addWidget(self.activity_rows_widget, 1)
+        scale_bar_spacer = QWidget()
+        scale_bar_spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        scale_bar_spacer.setStyleSheet("background: transparent;")
+        scale_row_layout.addWidget(scale_bar_spacer)
 
-        # Empty-state label (hidden when data present)
-        self.empty_activity_label = QLabel("No screening records yet. Start by running a new screening.")
-        self.empty_activity_label.setObjectName("emptyActivity")
-        self.empty_activity_label.setStyleSheet(
-            "color: #6c757d; font-size: 13px; font-style: italic; padding: 24px; background: transparent;"
-        )
-        self.empty_activity_label.setAlignment(Qt.AlignCenter)
-        self.empty_activity_label.setWordWrap(True)
-        activity_v.addWidget(self.empty_activity_label)
+        scale_right_spacer = QWidget()
+        scale_right_spacer.setFixedWidth(62)
+        scale_right_spacer.setStyleSheet("background: transparent;")
+        scale_row_layout.addWidget(scale_right_spacer)
 
-        content_row.addWidget(activity_card, 7)
+        severity_v.addWidget(scale_row)
 
-        # ── Right: Session + Quick Actions + Insight ──
+        scale_line = QWidget()
+        scale_line.setFixedHeight(1)
+        scale_line.setStyleSheet("background: #e9ecef;")
+        severity_v.addWidget(scale_line)
+
+        self.severity_bars = {}
+        self._severity_order = [
+            "No DR",
+            "Mild DR",
+            "Moderate DR",
+            "Severe DR",
+            "Proliferative DR",
+        ]
+        for level in self._severity_order:
+            row = QWidget()
+            row.setMinimumHeight(40)
+            row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(6)
+
+            level_lbl = QLabel(level)
+            level_lbl.setFixedWidth(124)
+            level_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #495057; background: transparent;")
+
+            bar = QProgressBar()
+            bar.setMinimum(0)
+            bar.setMaximum(100)
+            bar.setValue(0)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(16)
+            bar.setMinimumWidth(220)
+            bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            bar.setFormat("")
+
+            count_lbl = QLabel("0")
+            count_lbl.setFixedWidth(62)
+            count_lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            count_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            count_lbl.setStyleSheet(
+                "font-size: 15px; font-weight: 800; color: #212529; background: transparent;"
+                "padding-left: 6px;"
+            )
+
+            row_layout.addWidget(level_lbl)
+            row_layout.addWidget(bar)
+            row_layout.addWidget(count_lbl)
+            severity_v.addWidget(row, 1)
+            self.severity_bars[level] = (bar, count_lbl)
+
+        content_row.addWidget(severity_card, 7)
+
+        # Right: quick actions and summary cards
         sidebar = QWidget()
         sidebar.setObjectName("dashSidebar")
         sidebar.setStyleSheet("QWidget#dashSidebar { background: transparent; }")
@@ -921,7 +922,7 @@ class EyeShieldApp(QMainWindow):
         sidebar_v.setContentsMargins(0, 0, 0, 0)
         sidebar_v.setSpacing(14)
 
-        # Quick Actions card
+        # Quick actions card
         actions_card = QWidget()
         actions_card.setObjectName("actionsCard")
         actions_card.setStyleSheet("""
@@ -971,36 +972,71 @@ class EyeShieldApp(QMainWindow):
         actions_v.addWidget(btn_view_reports)
         self._dash_btn_new = btn_new_screening
         self._dash_btn_reports = btn_view_reports
-        sidebar_v.addWidget(actions_card)
+        sidebar_v.addWidget(actions_card, 1)
 
-        # Clinical Insight card
-        insight_card = QWidget()
-        insight_card.setObjectName("insightCard")
-        insight_card.setStyleSheet("""
-            QWidget#insightCard {
+        # Snapshot card
+        snapshot_card = QWidget()
+        snapshot_card.setObjectName("snapshotCard")
+        snapshot_card.setStyleSheet("""
+            QWidget#snapshotCard {
                 background: white;
                 border: 1px solid #dee2e6;
                 border-radius: 8px;
             }
         """)
-        insight_v = QVBoxLayout(insight_card)
-        insight_v.setContentsMargins(16, 12, 16, 12)
-        insight_v.setSpacing(6)
-        self._dash_insight_title_lbl = QLabel("CLINICAL INSIGHT")
-        self._dash_insight_title_lbl.setStyleSheet(
+        snapshot_v = QVBoxLayout(snapshot_card)
+        snapshot_v.setContentsMargins(16, 12, 16, 12)
+        snapshot_v.setSpacing(8)
+        self._dash_snapshot_title_lbl = QLabel("SCREENING SNAPSHOT")
+        self._dash_snapshot_title_lbl.setStyleSheet(
             "color: #6c757d; font-size: 11px; font-weight: 700;"
             "letter-spacing: 0.5px; background: transparent;"
         )
-        self.insight_label = QLabel("Start a screening to generate insight.")
-        self.insight_label.setObjectName("insightLabel")
-        self.insight_label.setStyleSheet("font-size: 12px; color: #495057; background: transparent;")
-        self.insight_label.setWordWrap(True)
-        insight_v.addWidget(self._dash_insight_title_lbl)
-        insight_v.addWidget(self.insight_label)
-        insight_v.addStretch()
-        sidebar_v.addWidget(insight_card)
+        self.snapshot_top_label = QLabel("No screenings yet")
+        self.snapshot_top_label.setStyleSheet("font-size: 13px; font-weight: 600; color: #343a40; background: transparent;")
+        self.snapshot_mid_label = QLabel("Total records: 0")
+        self.snapshot_mid_label.setStyleSheet("font-size: 12px; color: #495057; background: transparent;")
+        self.snapshot_low_label = QLabel("No DR cases: 0")
+        self.snapshot_low_label.setStyleSheet("font-size: 12px; color: #495057; background: transparent;")
+        self.snapshot_note_label = QLabel("Use Reports for detailed patient history.")
+        self.snapshot_note_label.setWordWrap(True)
+        self.snapshot_note_label.setStyleSheet("font-size: 12px; color: #6c757d; background: transparent;")
+        snapshot_v.addWidget(self._dash_snapshot_title_lbl)
+        snapshot_v.addWidget(self.snapshot_top_label)
+        snapshot_v.addWidget(self.snapshot_mid_label)
+        snapshot_v.addWidget(self.snapshot_low_label)
+        snapshot_v.addWidget(self.snapshot_note_label)
+        sidebar_v.addWidget(snapshot_card, 1)
 
-        sidebar_v.addStretch()
+        # Workflow card (fills dashboard to avoid sparse layout)
+        workflow_card = QWidget()
+        workflow_card.setObjectName("workflowCard")
+        workflow_card.setStyleSheet("""
+            QWidget#workflowCard {
+                background: white;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+            }
+        """)
+        workflow_v = QVBoxLayout(workflow_card)
+        workflow_v.setContentsMargins(16, 12, 16, 12)
+        workflow_v.setSpacing(8)
+        workflow_title = QLabel("TODAY'S WORKFLOW")
+        workflow_title.setObjectName("workflowTitle")
+        workflow_title.setStyleSheet(
+            "color: #6c757d; font-size: 11px; font-weight: 700;"
+            "letter-spacing: 0.5px; background: transparent;"
+        )
+        self.workflow_step_1 = QLabel("1. Capture a new fundus image")
+        self.workflow_step_2 = QLabel("2. Validate and save screening outcome")
+        self.workflow_step_3 = QLabel("3. Review flagged records in Reports")
+        for step in (self.workflow_step_1, self.workflow_step_2, self.workflow_step_3):
+            step.setStyleSheet("font-size: 12px; color: #495057; background: transparent;")
+            step.setWordWrap(True)
+            workflow_v.addWidget(step)
+        workflow_v.insertWidget(0, workflow_title)
+        sidebar_v.addWidget(workflow_card, 1)
+
         content_row.addWidget(sidebar, 3)
         layout.addLayout(content_row, 1)
 
@@ -1010,10 +1046,10 @@ class EyeShieldApp(QMainWindow):
         """Refresh all dashboard widgets with current data and correct theme colors."""
         from translations import get_pack
         _lang = getattr(self, "_current_language", "English")
-        _pack = get_pack(_lang)
+        get_pack(_lang)
         dark = getattr(self, "_dark_mode", False)
 
-        # ── Theme palette ──
+        # Theme palette
         if dark:
             bg_page = "#1e1e2e"
             card_bg = "#313244"
@@ -1022,13 +1058,7 @@ class EyeShieldApp(QMainWindow):
             text_secondary = "#a6adc8"
             text_muted = "#6c7086"
             accent_blue = "#89b4fa"
-            sev_red = "#f38ba8"
-            sev_amber = "#fab387"
             sev_green = "#a6e3a1"
-            col_header_bg = "#45475a"
-            col_header_text = "#a6adc8"
-            row_hover = "#3a3a4f"
-            bar_track_bg = "#45475a"
             btn_primary_bg = "#89b4fa"
             btn_primary_text = "#1e1e2e"
             btn_primary_hover = "#74a8f7"
@@ -1042,24 +1072,23 @@ class EyeShieldApp(QMainWindow):
             text_secondary = "#6c757d"
             text_muted = "#adb5bd"
             accent_blue = "#0066cc"
-            sev_red = "#d32f2f"
-            sev_amber = "#ed6c02"
             sev_green = "#2e7d32"
-            col_header_bg = "#f1f3f5"
-            col_header_text = "#868e96"
-            row_hover = "#f1f3f5"
-            bar_track_bg = "#e9ecef"
             btn_primary_bg = "#0066cc"
             btn_primary_text = "white"
             btn_primary_hover = "#0052a3"
             btn_outline_color = "#0066cc"
             btn_outline_hover_bg = "#e8f0fe"
 
-        # ── Fetch data ──
+        severity_colors = {
+            "No DR": sev_green,
+            "Mild DR": "#58a6ff" if dark else "#0b73e0",
+            "Moderate DR": "#f9e2af" if dark else "#f59f00",
+            "Severe DR": "#fab387" if dark else "#f76707",
+            "Proliferative DR": "#f38ba8" if dark else "#d6336c",
+        }
+
+        # Fetch data
         total = 0
-        high_attention = 0
-        pending_count = 0
-        confidence_values = []
         rows = []
         with contextlib.suppress(Exception):
             conn = sqlite3.connect(DB_FILE)
@@ -1070,27 +1099,14 @@ class EyeShieldApp(QMainWindow):
             )
             rows = cur.fetchall()
             conn.close()
-
-            total = len(rows)
-            for _, _, result, confidence_text in rows:
-                result = str(result or "")
-                if self._is_high_attention_result(result):
-                    high_attention += 1
-                if not result or "pending" in result.lower():
-                    pending_count += 1
-                conf_value = self._extract_confidence_value(str(confidence_text or ""))
-                if conf_value is not None:
-                    confidence_values.append(conf_value)
-
-        avg_conf = sum(confidence_values) / len(confidence_values) if confidence_values else None
-
-        # ── Page background ──
+        total = len(rows)
+        # Page background
         if hasattr(self, "dashboard_page"):
             self.dashboard_page.setStyleSheet(
                 f"QWidget#dashboardPage {{ background: {bg_page}; }}"
             )
 
-        # ── 0. Welcome row ──
+        # Welcome row
         if hasattr(self, "welcome_label"):
             self.welcome_label.setStyleSheet(
                 f"color: {text_primary}; font-size: 22px; font-weight: 600; background: transparent;"
@@ -1106,12 +1122,12 @@ class EyeShieldApp(QMainWindow):
                 f"color: {text_secondary}; font-size: 14px; font-weight: 500; background: transparent;"
             )
 
-        # ── KPI cards ──
+        # KPI cards
         kpi_title_style = (
             f"color: {text_secondary}; font-size: 11px; font-weight: 700;"
             "letter-spacing: 0.5px; text-transform: uppercase; background: transparent;"
         )
-        kpi_value_style = f"font-size: 34px; font-weight: 700; color: {text_primary}; background: transparent;"
+        kpi_value_style = f"font-size: 32px; font-weight: 700; color: {text_primary}; background: transparent;"
         kpi_sub_style = f"font-size: 11px; color: {text_secondary}; background: transparent;"
 
         def style_kpi(obj_name, accent, value_widget, sub_widget, value_text, sub_text):
@@ -1134,157 +1150,76 @@ class EyeShieldApp(QMainWindow):
 
         style_kpi("kpiTotal", accent_blue,
                   self.total_screenings_value, self.total_sub,
-                  str(total), _pack["dash_kpi_total_sub"])
+                  str(total), "")
 
-        flagged_accent = sev_red if high_attention > 0 else text_muted
-        style_kpi("kpiFlagged", flagged_accent,
-                  self.high_attention_value, self.high_attention_hint,
-                  str(high_attention),
-                  _pack["dash_flagged_cases"] if high_attention > 0 else _pack["dash_no_flagged"])
-
-        style_kpi("kpiPending", sev_amber if pending_count > 0 else text_muted,
-                  self.pending_value, self.pending_sub,
-                  str(pending_count),
-                  _pack["dash_awaiting"] if pending_count > 0 else _pack["dash_all_reviewed"])
-
-        _n_conf = len(confidence_values)
-        conf_display = f"{avg_conf:.1f}%" if avg_conf is not None else "\u2014"
-        if confidence_values:
-            _conf_sub = _pack["dash_conf_across"].format(n=_n_conf)
-            if _lang == "English" and _n_conf != 1:
-                _conf_sub += "s"
-        else:
-            _conf_sub = _pack["dash_no_conf"]
-        style_kpi("kpiConf", accent_blue,
-                  self.avg_confidence_value, self.conf_sub,
-                  conf_display,
-                  _conf_sub)
-
-        # Confidence progress bar
-        if hasattr(self, "conf_bar_track"):
-            self.conf_bar_track.setStyleSheet(
-                f"background: {bar_track_bg}; border-radius: 3px;"
-            )
-            track_w = self.conf_bar_track.width() or 200
-            fill_w = int(track_w * (avg_conf / 100.0)) if avg_conf is not None else 0
-            bar_color = sev_green if (avg_conf or 0) >= 75 else (sev_amber if (avg_conf or 0) >= 50 else sev_red)
-            self.conf_bar_fill.setStyleSheet(
-                f"background: {bar_color}; border-radius: 3px;"
-            )
-            self.conf_bar_fill.setFixedWidth(max(0, min(fill_w, track_w)))
-
-        # ── 3. Recent Screenings table ──
-        if hasattr(self, "activity_rows_layout"):
-            # Clear existing rows
-            while self.activity_rows_layout.count():
-                item = self.activity_rows_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-
-            # Theme the card
-            if hasattr(self, "col_header_widget"):
-                self.col_header_widget.setStyleSheet(
-                    f"QWidget#colHeader {{ background: {col_header_bg}; border-radius: 4px; }}"
-                )
-                for lbl in self.col_header_widget.findChildren(QLabel):
-                    lbl.setStyleSheet(
-                        f"font-size: 10px; font-weight: 700; color: {col_header_text};"
-                        " background: transparent; text-transform: uppercase;"
-                    )
-
-            activity_card = self.findChild(QWidget, "activityCard")
-            if activity_card:
-                activity_card.setStyleSheet(
-                    f"QWidget#activityCard {{ background: {card_bg};"
-                    f"  border: 1px solid {card_border}; border-radius: 8px; }}"
-                )
-
-            if hasattr(self, "activity_count_label"):
-                self.activity_count_label.setText(
-                    f"Showing {min(len(rows), 8)} of {total}" if total else ""
-                )
-                self.activity_count_label.setStyleSheet(
-                    f"color: {text_secondary}; font-size: 11px; background: transparent;"
-                )
-
-            # Activity title
-            if hasattr(self, "_dash_activity_title_lbl"):
-                self._dash_activity_title_lbl.setStyleSheet(
-                    f"color: {text_secondary}; font-size: 11px; font-weight: 700;"
-                    "letter-spacing: 0.5px; text-transform: uppercase; background: transparent;"
-                )
-
-            recent = rows[:8]
-            if recent:
-                self.empty_activity_label.setVisible(False)
-                self.col_header_widget.setVisible(True)
-                for patient_id, name, result, confidence in recent:
-                    row_w = QWidget()
-                    row_w.setFixedHeight(32)
-                    row_w.setStyleSheet(
-                        f"QWidget {{ background: transparent; }}"
-                        f"QWidget:hover {{ background: {row_hover}; border-radius: 4px; }}"
-                    )
-                    rh = QHBoxLayout(row_w)
-                    rh.setContentsMargins(8, 0, 8, 0)
-                    rh.setSpacing(0)
-
-                    result_str = str(result or "")
-                    # Severity dot
-                    if self._is_high_attention_result(result_str):
-                        dot_color = sev_red
-                    elif not result_str or "pending" in result_str.lower():
-                        dot_color = sev_amber
-                    else:
-                        dot_color = sev_green
-
-                    dot = QLabel("\u25cf")
-                    dot.setFixedWidth(16)
-                    dot.setStyleSheet(f"color: {dot_color}; font-size: 10px; background: transparent;")
-                    dot.setAlignment(Qt.AlignCenter)
-
-                    cell_style = f"font-size: 12px; color: {text_primary}; background: transparent;"
-                    cell_secondary = f"font-size: 12px; color: {text_secondary}; background: transparent;"
-
-                    pid_lbl = QLabel(str(patient_id or ""))
-                    pid_lbl.setStyleSheet(cell_style)
-
-                    name_lbl = QLabel(str(name or ""))
-                    name_lbl.setStyleSheet(cell_style)
-
-                    result_lbl = QLabel(result_str or "Pending")
-                    if self._is_high_attention_result(result_str):
-                        result_lbl.setStyleSheet(
-                            f"font-size: 12px; color: {sev_red}; font-weight: 600; background: transparent;"
-                        )
-                    elif not result_str or "pending" in result_str.lower():
-                        result_lbl.setStyleSheet(
-                            f"font-size: 12px; color: {sev_amber}; font-style: italic; background: transparent;"
-                        )
-                    else:
-                        result_lbl.setStyleSheet(cell_secondary)
-
-                    conf_val = self._extract_confidence_value(str(confidence or ""))
-                    conf_lbl = QLabel(f"{conf_val:.0f}%" if conf_val is not None else "—")
-                    conf_lbl.setStyleSheet(cell_secondary)
-
-                    rh.addWidget(dot, 0)
-                    rh.addWidget(pid_lbl, 2)
-                    rh.addWidget(name_lbl, 3)
-                    rh.addWidget(result_lbl, 3)
-                    rh.addWidget(conf_lbl, 2)
-                    self.activity_rows_layout.addWidget(row_w)
-                self.activity_rows_layout.addStretch()
+        no_dr_count = 0
+        abnormal_count = 0
+        high_risk_count = 0
+        for _, _, result, _ in rows:
+            level = self._normalize_severity_label(result)
+            if level == "No DR":
+                no_dr_count += 1
             else:
-                self.empty_activity_label.setVisible(True)
-                self.col_header_widget.setVisible(False)
-                self.empty_activity_label.setStyleSheet(
-                    f"color: {text_muted}; font-size: 13px; font-style: italic;"
-                    " padding: 24px; background: transparent;"
+                abnormal_count += 1
+                if level in ("Severe DR", "Proliferative DR"):
+                    high_risk_count += 1
+        style_kpi("kpiPatients", sev_green,
+                  self.unique_patients_value, self.unique_patients_sub,
+                  str(no_dr_count), "")
+
+        style_kpi("kpiAbnormal", "#f59e0b",
+                  self.abnormal_cases_value, self.abnormal_cases_sub,
+                  str(abnormal_count), "Cases needing review")
+
+        style_kpi("kpiHighRisk", "#dc3545",
+                  self.high_risk_cases_value, self.high_risk_cases_sub,
+                  str(high_risk_count), "Severe + proliferative")
+
+        # Severity chart card
+        severity_card = self.findChild(QWidget, "severityCard")
+        if severity_card:
+            severity_card.setStyleSheet(
+                f"QWidget#severityCard {{ background: {card_bg};"
+                f"  border: 1px solid {card_border}; border-radius: 8px; }}"
+            )
+        if hasattr(self, "_dash_severity_title_lbl"):
+            self._dash_severity_title_lbl.setStyleSheet(
+                f"color: {text_secondary}; font-size: 11px; font-weight: 700;"
+                "letter-spacing: 0.5px; text-transform: uppercase; background: transparent;"
+            )
+
+        severity_counts = {level: 0 for level in getattr(self, "_severity_order", [])}
+        for _, _, result, _ in rows:
+            level = self._normalize_severity_label(result)
+            if level not in severity_counts:
+                continue
+            severity_counts[level] += 1
+
+        if hasattr(self, "severity_bars"):
+            total_count = sum(severity_counts.values()) if severity_counts else 0
+            for level in self._severity_order:
+                bar, count_lbl = self.severity_bars[level]
+                count = severity_counts.get(level, 0)
+                bar.setMaximum(max(1, total_count))
+                bar.setValue(count)
+                bar.setStyleSheet(
+                    f"QProgressBar {{"
+                    f" background: {card_border};"
+                    f" border: 0; border-radius: 8px;"
+                    f" }}"
+                    f"QProgressBar::chunk {{"
+                    f" background: {severity_colors[level]};"
+                    f" border-radius: 8px;"
+                    f" }}"
+                )
+                count_lbl.setText(str(count))
+                count_lbl.setStyleSheet(
+                    f"font-size: 15px; font-weight: 800; color: {text_primary};"
+                    "background: transparent; padding-left: 6px;"
                 )
 
-        # ── 4. Sidebar cards ──
-        for card_name in ("actionsCard", "insightCard"):
+        # Sidebar cards
+        for card_name in ("actionsCard", "snapshotCard", "workflowCard"):
             card = self.findChild(QWidget, card_name)
             if card:
                 card.setStyleSheet(
@@ -1292,18 +1227,43 @@ class EyeShieldApp(QMainWindow):
                     f"  border: 1px solid {card_border}; border-radius: 8px; }}"
                 )
 
-        # Style section title labels in sidebar
+        # Sidebar titles
         sidebar_title_style = (
             f"color: {text_secondary}; font-size: 11px; font-weight: 700;"
             "letter-spacing: 0.5px; background: transparent;"
         )
         for _lbl in filter(None, [
             getattr(self, "_dash_actions_title_lbl", None),
-            getattr(self, "_dash_insight_title_lbl", None),
+            getattr(self, "_dash_snapshot_title_lbl", None),
+            self.findChild(QLabel, "workflowTitle"),
         ]):
             _lbl.setStyleSheet(sidebar_title_style)
 
-        # Quick-action buttons
+        # Snapshot content
+        if hasattr(self, "snapshot_top_label"):
+            if total == 0:
+                self.snapshot_top_label.setText("No screenings yet")
+                self.snapshot_mid_label.setText("Total records: 0")
+                self.snapshot_low_label.setText("No DR cases: 0")
+            else:
+                top_level = max(severity_counts, key=severity_counts.get)
+                self.snapshot_top_label.setText(f"Most common: {top_level}")
+                self.snapshot_mid_label.setText(f"Total records: {total}")
+                self.snapshot_low_label.setText(f"No DR cases: {no_dr_count}")
+            self.snapshot_top_label.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {text_primary}; background: transparent;")
+            self.snapshot_mid_label.setStyleSheet(f"font-size: 12px; color: {text_secondary}; background: transparent;")
+            self.snapshot_low_label.setStyleSheet(f"font-size: 12px; color: {text_secondary}; background: transparent;")
+            self.snapshot_note_label.setStyleSheet(f"font-size: 12px; color: {text_muted}; background: transparent;")
+
+        # Workflow text
+        for step in filter(None, [
+            getattr(self, "workflow_step_1", None),
+            getattr(self, "workflow_step_2", None),
+            getattr(self, "workflow_step_3", None),
+        ]):
+            step.setStyleSheet(f"font-size: 12px; color: {text_secondary}; background: transparent;")
+
+        # Quick action buttons
         if hasattr(self, "_dash_btn_new"):
             self._dash_btn_new.setStyleSheet(f"""
                 QPushButton {{
@@ -1322,30 +1282,22 @@ class EyeShieldApp(QMainWindow):
                 QPushButton:hover {{ background: {btn_outline_hover_bg}; }}
             """)
 
-        # Clinical insight text
-        if hasattr(self, "insight_label"):
-            if total == 0:
-                insight = _pack["dash_no_screenings"]
-            elif high_attention > 0:
-                pct = (high_attention / total * 100) if total else 0
-                if _lang == "English":
-                    insight = (
-                        f"{high_attention} of {total} screening{'s' if total != 1 else ''} "
-                        f"({pct:.0f}%) flagged. Prioritize report review."
-                    )
-                else:
-                    insight = f"{high_attention} sa {total} pagsusuri ({pct:.0f}%) ay naka-flag. Unahin ang rebyu ng ulat."
-            elif pending_count > 0:
-                if _lang == "English":
-                    insight = f"{pending_count} screening{'s' if pending_count != 1 else ''} pending review. Complete assessments to clear the queue."
-                else:
-                    insight = f"{pending_count} pagsusuri ang naghihintay ng rebyu. Kumpletuhin ang mga assessment."
-            else:
-                insight = _pack["dash_insight_all_clear"]
-            self.insight_label.setText(insight)
-            self.insight_label.setStyleSheet(
-                f"font-size: 12px; color: {text_secondary}; background: transparent;"
-            )
+    @staticmethod
+    def _normalize_severity_label(result_text):
+        text = str(result_text or "").strip().lower()
+        if not text or "pending" in text:
+            return ""
+        if "proliferative" in text:
+            return "Proliferative DR"
+        if "severe" in text:
+            return "Severe DR"
+        if "moderate" in text:
+            return "Moderate DR"
+        if "mild" in text:
+            return "Mild DR"
+        if "no dr" in text or "no diabetic retinopathy" in text or "normal" in text:
+            return "No DR"
+        return ""
 
     @staticmethod
     def _is_high_attention_result(result_text):

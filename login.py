@@ -1,7 +1,4 @@
-"""
-Login module for EyeShield EMR application.
-Handles user authentication and login window.
-"""
+"""Login module for EyeShield application."""
 
 import os
 
@@ -39,7 +36,7 @@ class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("EyeShield – Login")
+        self.setWindowTitle("EyeShield - Login")
         self.setFixedSize(500, 420)
         self.setStyleSheet("""
             QWidget {
@@ -61,7 +58,7 @@ class LoginWindow(QWidget):
             margin-bottom: 8px;
         """)
 
-        subtitle = QLabel("Electronic Medical Records System")
+        subtitle = QLabel("Clinical Screening System")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet("""
             font-size: 14px;
@@ -69,7 +66,6 @@ class LoginWindow(QWidget):
             margin-bottom: 24px;
         """)
 
-        # Login form container
         form_widget = QWidget()
         form_widget.setStyleSheet("""
             QWidget {

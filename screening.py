@@ -12,11 +12,12 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout,
     QFileDialog, QFormLayout, QGroupBox, QComboBox, QDateEdit, QMessageBox,
     QDoubleSpinBox, QSpinBox, QCheckBox, QTextEdit, QCalendarWidget, QStackedWidget,
-    QGridLayout, QFrame, QStyle, QDialog, QScrollArea, QProgressBar
+    QGridLayout, QFrame, QStyle, QDialog, QScrollArea, QProgressBar, QSizePolicy
 )
 from PySide6.QtGui import QPixmap, QFont, QRegularExpressionValidator, QPainter, QPen, QColor, QIcon, QPalette
 from PySide6.QtCore import Qt, QDate, QRegularExpression, QSize, QEvent, QThread, Signal
 import os
+import re
 from auth import DB_FILE
 
 # ── Per-grade clinical constants ──────────────────────────────────────────────
@@ -94,29 +95,6 @@ class _InferenceWorker(QThread):
                 self.finished.emit(label, conf, heatmap_path)
             except ImageUngradableError as exc:
                 self.ungradable.emit(str(exc))
-        except Exception as exc:
-            self.error.emit(str(exc))
-
-
-class _ComparisonWorker(QThread):
-    """Run model_inference.run_comparison_inference() on a background thread."""
-    result_ready = Signal(str, str)          # label, confidence_text
-    finished     = Signal(str, str, int, str) # label, confidence_text, class_idx, heatmap_path
-    error        = Signal(str)
-
-    def __init__(self, image_path: str, model_path: str):
-        super().__init__()
-        self._image_path = image_path
-        self._model_path = model_path
-
-    def run(self):
-        try:
-            from model_inference import run_comparison_inference
-            label, conf, class_idx, heatmap_path = run_comparison_inference(
-                self._image_path, self._model_path
-            )
-            self.result_ready.emit(label, conf)
-            self.finished.emit(label, conf, class_idx, heatmap_path)
         except Exception as exc:
             self.error.emit(str(exc))
 
@@ -467,7 +445,8 @@ class ScreeningPage(QWidget):
                 background: #ffffff;
                 border: 1px solid #ced4da;
                 border-radius: 8px;
-                padding: 8px;
+                padding: 2px 8px;
+                min-height: 24px;
             }
             QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus {
                 border: 1px solid #0d6efd;
@@ -477,7 +456,7 @@ class ScreeningPage(QWidget):
                 color: #212529;
                 border: 1px solid #ced4da;
                 border-radius: 8px;
-                padding: 8px 16px;
+                padding: 6px 12px;
                 font-weight: 600;
             }
             QPushButton:hover {
@@ -582,30 +561,45 @@ class ScreeningPage(QWidget):
 
     def create_unified_page(self):
         container = QWidget()
-        grid = QGridLayout(container)
-        grid.setSpacing(12)
-        grid.setContentsMargins(16, 16, 16, 16)
+        root_layout = QHBoxLayout(container)
+        root_layout.setContentsMargins(16, 16, 16, 16)
+        root_layout.setSpacing(14)
+
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        left_content = QWidget()
+        left_content_layout = QVBoxLayout(left_content)
+        left_content_layout.setContentsMargins(0, 0, 6, 0)
+        left_content_layout.setSpacing(12)
+        left_scroll.setWidget(left_content)
         # Patient Info
         self._scr_patient_group = QGroupBox("Patient Information")
+        self._scr_patient_group.setMinimumWidth(300)
+        self._scr_patient_group.setMaximumWidth(640)
+        self._scr_patient_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._scr_patient_form = QFormLayout()
         self._scr_patient_form.setContentsMargins(12, 14, 12, 12)
         self._scr_patient_form.setHorizontalSpacing(14)
-        self._scr_patient_form.setVerticalSpacing(10)
+        self._scr_patient_form.setVerticalSpacing(6)
         self._scr_patient_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._scr_patient_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         self.p_id = QLineEdit()
         self.p_id.setReadOnly(True)
-        self.p_id.setMinimumHeight(34)
+        self.p_id.setMinimumHeight(24)
         self.generate_patient_id()
         self._scr_patient_form.addRow("Patient ID:", self.p_id)
         self.p_name = QLineEdit()
         self.p_name.setPlaceholderText("Full name")
-        self.p_name.setMinimumHeight(34)
+        self.p_name.setMinimumHeight(24)
         self._scr_patient_form.addRow("Name:", self.p_name)
         self.p_dob = QLineEdit()
         self.p_dob.setPlaceholderText("dd/mm/yyyy")
         self.p_dob.setMaxLength(10)
-        self.p_dob.setMinimumHeight(34)
+        self.p_dob.setMinimumHeight(24)
         self._dob_default_style = ""
         self._dob_invalid_style = """
             QLineEdit {
@@ -624,41 +618,64 @@ class ScreeningPage(QWidget):
         self.p_age.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.p_age.setSpecialValueText(" ")
         self.p_age.setValue(0)
-        self.p_age.setMinimumHeight(34)
+        self.p_age.setMinimumHeight(24)
         self._scr_patient_form.addRow("Age:", self.p_age)
         self.p_sex = QComboBox()
         self.p_sex.addItems(["", "Male", "Female", "Prefer not to say"])
-        self.p_sex.setMinimumHeight(34)
+        self.p_sex.setMinimumHeight(24)
         self._scr_patient_form.addRow("Sex:", self.p_sex)
         self.p_contact = QLineEdit()
         self.p_contact.setPlaceholderText("Phone or Email")
-        self.p_contact.setMinimumHeight(34)
+        self.p_contact.setMinimumHeight(24)
         self._scr_patient_form.addRow("Contact:", self.p_contact)
         self.p_eye = QComboBox()
         self.p_eye.addItems(["", "Right Eye", "Left Eye"])
-        self.p_eye.setMinimumHeight(34)
+        self.p_eye.setMinimumHeight(24)
         self._scr_patient_form.addRow("Eye Screened:", self.p_eye)
         self._scr_patient_group.setLayout(self._scr_patient_form)
         # Clinical History
         self._scr_clinical_group = QGroupBox("Clinical History")
+        self._scr_clinical_group.setMinimumWidth(300)
+        self._scr_clinical_group.setMaximumWidth(640)
+        self._scr_clinical_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._scr_clinical_form = QFormLayout()
         self.diabetes_type = QComboBox()
         self.diabetes_type.addItems(["Select", "Type 1", "Type 2", "Gestational", "Other"])
         self._scr_clinical_form.addRow("Diabetes Type:", self.diabetes_type)
+
+        # Diagnosis Date field
+        self.diabetes_diagnosis_date = QLineEdit()
+        self.diabetes_diagnosis_date.setPlaceholderText("dd/mm/yyyy")
+        self.diabetes_diagnosis_date.setMaxLength(10)
+        self.diabetes_diagnosis_date.setMinimumHeight(24)
+        self.diabetes_diagnosis_date.setStyleSheet("""
+            QLineEdit {
+                background: #ffffff;
+                border: 1px solid #6c757d;
+                border-radius: 6px;
+                padding: 0 8px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0d6efd;
+            }
+        """)
+        self.diabetes_diagnosis_date.textChanged.connect(self._on_diagnosis_date_changed)
+        self._scr_clinical_form.addRow("Diagnosis Date:", self.diabetes_diagnosis_date)
+
+        # Duration (now auto-calculated, read-only)
         self.diabetes_duration = QSpinBox()
         self.diabetes_duration.setSuffix(" years")
         self.diabetes_duration.setRange(0, 80)
+        self.diabetes_duration.setReadOnly(True)
+        self.diabetes_duration.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.diabetes_duration.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         self.diabetes_duration.setStyleSheet("""
-            QSpinBox::up-button {
-                subcontrol-origin: border;
-                subcontrol-position: top right;
-                width: 18px;
-            }
-            QSpinBox::down-button {
-                subcontrol-origin: border;
-                subcontrol-position: bottom right;
-                width: 18px;
+            QSpinBox {
+                background: #e9ecef;
+                border: 1px solid #adb5bd;
+                border-radius: 6px;
+                padding: 0 8px;
+                color: #495057;
             }
         """)
         self._scr_clinical_form.addRow("Duration:", self.diabetes_duration)
@@ -717,45 +734,370 @@ class ScreeningPage(QWidget):
         """)
         self._scr_clinical_form.addRow("Notes:", self.notes)
         self._scr_clinical_group.setLayout(self._scr_clinical_form)
+        self._apply_flat_form_label_style(self._scr_patient_form)
+        self._apply_flat_form_label_style(self._scr_clinical_form)
+
+        # Vital Signs & Symptoms
+        self._scr_vitals_group = QGroupBox("Vital Signs & Symptoms")
+        self._scr_vitals_group.setMinimumWidth(300)
+        self._scr_vitals_group.setMaximumWidth(640)
+        self._scr_vitals_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._scr_vitals_form = QFormLayout()
+
+        # Visual Acuity (Left / Right)
+        va_layout = QHBoxLayout()
+        self.va_left = QLineEdit()
+        self.va_left.setPlaceholderText("e.g., 20/20")
+        self.va_left.setMaxLength(10)
+        self.va_left.setMinimumHeight(24)
+        self.va_left.setStyleSheet("""
+            QLineEdit {
+                background: #ffffff;
+                border: 1px solid #6c757d;
+                border-radius: 6px;
+                padding: 0 8px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0d6efd;
+            }
+        """)
+        self.va_right = QLineEdit()
+        self.va_right.setPlaceholderText("e.g., 20/20")
+        self.va_right.setMaxLength(10)
+        self.va_right.setMinimumHeight(24)
+        self.va_right.setStyleSheet("""
+            QLineEdit {
+                background: #ffffff;
+                border: 1px solid #6c757d;
+                border-radius: 6px;
+                padding: 0 8px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0d6efd;
+            }
+        """)
+        va_left_label = QLabel("Left:")
+        va_left_label.setStyleSheet("color: #495057; font-weight: 500;")
+        va_right_label = QLabel("Right:")
+        va_right_label.setStyleSheet("color: #495057; font-weight: 500;")
+        va_layout.addWidget(va_left_label)
+        va_layout.addWidget(self.va_left, 1)
+        va_layout.addSpacing(10)
+        va_layout.addWidget(va_right_label)
+        va_layout.addWidget(self.va_right, 1)
+        self._scr_vitals_form.addRow("Visual Acuity:", va_layout)
+
+        # Blood Pressure (Systolic / Diastolic)
+        bp_layout = QHBoxLayout()
+        self.bp_systolic = QSpinBox()
+        self.bp_systolic.setRange(0, 250)
+        self.bp_systolic.setSpecialValueText(" ")
+        self.bp_systolic.setMinimumHeight(24)
+        self.bp_systolic.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.bp_systolic.setStyleSheet("""
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+            }
+        """)
+        self.bp_diastolic = QSpinBox()
+        self.bp_diastolic.setRange(0, 180)
+        self.bp_diastolic.setSpecialValueText(" ")
+        self.bp_diastolic.setMinimumHeight(24)
+        self.bp_diastolic.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.bp_diastolic.setStyleSheet("""
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+            }
+        """)
+        bp_separator = QLabel("/")
+        bp_separator.setStyleSheet("color: #495057; font-weight: 500;")
+        bp_unit = QLabel("mmHg")
+        bp_unit.setStyleSheet("color: #6c757d; font-size: 9pt;")
+        bp_layout.addWidget(self.bp_systolic, 1)
+        bp_layout.addWidget(bp_separator)
+        bp_layout.addWidget(self.bp_diastolic, 1)
+        bp_layout.addWidget(bp_unit)
+        bp_layout.addStretch()
+        self._scr_vitals_form.addRow("Blood Pressure:", bp_layout)
+
+        # Blood Glucose (FBS / RBS)
+        bg_layout = QHBoxLayout()
+        fbs_label = QLabel("FBS:")
+        fbs_label.setStyleSheet("color: #495057; font-weight: 500;")
+        self.fbs = QSpinBox()
+        self.fbs.setRange(0, 600)
+        self.fbs.setSuffix(" mg/dL")
+        self.fbs.setSpecialValueText(" ")
+        self.fbs.setMinimumHeight(24)
+        self.fbs.setMinimumWidth(110)
+        self.fbs.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.fbs.setStyleSheet("""
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+            }
+        """)
+        rbs_label = QLabel("RBS:")
+        rbs_label.setStyleSheet("color: #495057; font-weight: 500;")
+        self.rbs = QSpinBox()
+        self.rbs.setRange(0, 800)
+        self.rbs.setSuffix(" mg/dL")
+        self.rbs.setSpecialValueText(" ")
+        self.rbs.setMinimumHeight(24)
+        self.rbs.setMinimumWidth(110)
+        self.rbs.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.rbs.setStyleSheet("""
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+            }
+        """)
+        bg_layout.addWidget(fbs_label)
+        bg_layout.addWidget(self.fbs)
+        bg_layout.addSpacing(10)
+        bg_layout.addWidget(rbs_label)
+        bg_layout.addWidget(self.rbs)
+        bg_layout.addStretch()
+        self._scr_vitals_form.addRow("Blood Glucose:", bg_layout)
+
+        # Symptoms Checklist
+        symptoms_layout = QVBoxLayout()
+        symptoms_layout.setSpacing(6)
+        self.symptom_blurred = QCheckBox("Blurred vision")
+        self.symptom_blurred.setStyleSheet("""
+            QCheckBox {
+                color: #212529;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #6c757d;
+                border-radius: 3px;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #007bff;
+                border: 1px solid #0056b3;
+            }
+        """)
+        self.symptom_floaters = QCheckBox("Floaters")
+        self.symptom_floaters.setStyleSheet("""
+            QCheckBox {
+                color: #212529;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #6c757d;
+                border-radius: 3px;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #007bff;
+                border: 1px solid #0056b3;
+            }
+        """)
+        self.symptom_flashes = QCheckBox("Flashes")
+        self.symptom_flashes.setStyleSheet("""
+            QCheckBox {
+                color: #212529;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #6c757d;
+                border-radius: 3px;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #007bff;
+                border: 1px solid #0056b3;
+            }
+        """)
+        self.symptom_vision_loss = QCheckBox("Vision loss")
+        self.symptom_vision_loss.setStyleSheet("""
+            QCheckBox {
+                color: #212529;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #6c757d;
+                border-radius: 3px;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #007bff;
+                border: 1px solid #0056b3;
+            }
+        """)
+        symptoms_layout.addWidget(self.symptom_blurred)
+        symptoms_layout.addWidget(self.symptom_floaters)
+        symptoms_layout.addWidget(self.symptom_flashes)
+        symptoms_layout.addWidget(self.symptom_vision_loss)
+        self._scr_vitals_form.addRow("Symptoms:", symptoms_layout)
+
+        self._scr_vitals_group.setLayout(self._scr_vitals_form)
+        self._apply_flat_form_label_style(self._scr_vitals_form)
+
         # Image Upload
         self._scr_image_group = QGroupBox("Fundus Image Upload")
+        self._scr_image_group.setMinimumWidth(520)
+        self._scr_image_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         image_layout = QVBoxLayout()
-        self.image_label = QLabel("No image loaded")
-        self.image_label.setMinimumSize(450, 400)
+        image_layout.setContentsMargins(12, 14, 12, 12)
+        image_layout.setSpacing(10)
+        self.image_label = QLabel()
+        self.image_label.setMinimumSize(480, 340)
+        self.image_label.setMaximumHeight(460)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("border: 2px dashed #ccc; background-color: #f9f9f9;")
-        image_layout.addWidget(self.image_label)
+        self.image_label.setWordWrap(True)
+        self._apply_upload_placeholder_style()
+        image_layout.addWidget(self.image_label, 1)
         btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 2, 0, 0)
+        btn_layout.setSpacing(8)
         self.btn_upload = QPushButton("Upload Image")
         self.btn_upload.setObjectName("primaryAction")
+        self.btn_upload.setMinimumHeight(28)
+        self.btn_upload.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_upload.clicked.connect(self.upload_image)
         self.btn_clear = QPushButton("Clear")
         self.btn_clear.setObjectName("dangerAction")
+        self.btn_clear.setMinimumHeight(28)
+        self.btn_clear.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_clear.clicked.connect(self.clear_image)
         btn_layout.addWidget(self.btn_upload)
         btn_layout.addWidget(self.btn_clear)
         image_layout.addLayout(btn_layout)
         self._scr_image_group.setLayout(image_layout)
-        # Position widgets in grid
-        grid.addWidget(self._scr_patient_group, 0, 0)
-        grid.addWidget(self._scr_clinical_group, 1, 0)
-        grid.addWidget(self._scr_image_group, 0, 1, 2, 1)
-        grid.setRowStretch(0, 1)
-        grid.setRowStretch(1, 1)
-        # Analyze Button at bottom right
+
+        # Left side remains scrollable in smaller windows.
+        left_content_layout.addWidget(self._scr_patient_group)
+        left_content_layout.addWidget(self._scr_clinical_group)
+        left_content_layout.addWidget(self._scr_vitals_group)
+        left_content_layout.addStretch()
+
+        # Keep form fields compact in width so inputs don't stretch too long.
+        compact_inputs = [
+            self.p_id,
+            self.p_name,
+            self.p_dob,
+            self.p_age,
+            self.p_sex,
+            self.p_contact,
+            self.p_eye,
+            self.diabetes_type,
+            self.diabetes_diagnosis_date,
+            self.diabetes_duration,
+            self.hba1c,
+            self.va_left,
+            self.va_right,
+            self.bp_systolic,
+            self.bp_diastolic,
+            self.fbs,
+            self.rbs,
+            self.notes,
+        ]
+        for widget in compact_inputs:
+            widget.setMaximumWidth(360)
+
+        # Build responsive right column
+        right_col = QWidget()
+        right_col_layout = QVBoxLayout(right_col)
+        right_col_layout.setContentsMargins(0, 0, 0, 0)
+        right_col_layout.setSpacing(12)
+        right_col_layout.addWidget(self._scr_image_group, 1)
+        right_col_layout.addStretch()
+
         analyze_layout = QHBoxLayout()
-        analyze_layout.addStretch()
+        analyze_layout.setContentsMargins(0, 0, 0, 0)
         self.btn_analyze = QPushButton("Analyze Image")
         self.btn_analyze.setObjectName("primaryAction")
+        self.btn_analyze.setMinimumHeight(32)
+        self.btn_analyze.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_analyze.setEnabled(False)
         self.btn_analyze.setAutoDefault(True)
         self.btn_analyze.setDefault(True)
         self.btn_analyze.clicked.connect(self.open_results_window)
-        analyze_layout.addStretch()
         analyze_layout.addWidget(self.btn_analyze)
-        grid.addLayout(analyze_layout, 2, 1, 1, 1)
+        right_col_layout.addLayout(analyze_layout)
+
+        # Keep upload area fixed (not inside scroll).
+        root_layout.addWidget(left_scroll, 1)
+        root_layout.addWidget(right_col, 1)
+
         self._set_tab_order_unified()
         return container
+
+    def _apply_upload_placeholder_style(self):
+        self.image_label.setPixmap(QPixmap())
+        self.image_label.setText("Upload a fundus image\nJPG, PNG, JPEG")
+        self.image_label.setStyleSheet(
+            """
+            QLabel {
+                border: 2px dashed #9ec5fe;
+                border-radius: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #f8fbff, stop:1 #eef5ff);
+                color: #0b5ed7;
+                padding: 12px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            """
+        )
+
+    def _apply_upload_loaded_style(self):
+        self.image_label.setStyleSheet(
+            """
+            QLabel {
+                border: 1px solid #cfe2ff;
+                border-radius: 12px;
+                background: #ffffff;
+                padding: 8px;
+            }
+            """
+        )
+
+    def _apply_flat_form_label_style(self, form_layout: QFormLayout):
+        for row in range(form_layout.rowCount()):
+            item = form_layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            if item and item.widget():
+                item.widget().setStyleSheet(
+                    "color: #212529; background: transparent; border: none;"
+                    "font-size: 13px; font-weight: 600;"
+                )
 
     def _set_tab_order_unified(self):
         self.setTabOrder(self.p_name, self.p_dob)
@@ -763,17 +1105,40 @@ class ScreeningPage(QWidget):
         self.setTabOrder(self.p_sex, self.p_contact)
         self.setTabOrder(self.p_contact, self.p_eye)
         self.setTabOrder(self.p_eye, self.diabetes_type)
-        self.setTabOrder(self.diabetes_type, self.diabetes_duration)
+        self.setTabOrder(self.diabetes_type, self.diabetes_diagnosis_date)
+        self.setTabOrder(self.diabetes_diagnosis_date, self.diabetes_duration)
         self.setTabOrder(self.diabetes_duration, self.hba1c)
         self.setTabOrder(self.hba1c, self.prev_treatment)
         self.setTabOrder(self.prev_treatment, self.notes)
-        self.setTabOrder(self.notes, self.btn_upload)
+        self.setTabOrder(self.notes, self.va_left)
+        self.setTabOrder(self.va_left, self.va_right)
+        self.setTabOrder(self.va_right, self.bp_systolic)
+        self.setTabOrder(self.bp_systolic, self.bp_diastolic)
+        self.setTabOrder(self.bp_diastolic, self.fbs)
+        self.setTabOrder(self.fbs, self.rbs)
+        self.setTabOrder(self.rbs, self.symptom_blurred)
+        self.setTabOrder(self.symptom_blurred, self.symptom_floaters)
+        self.setTabOrder(self.symptom_floaters, self.symptom_flashes)
+        self.setTabOrder(self.symptom_flashes, self.symptom_vision_loss)
+        self.setTabOrder(self.symptom_vision_loss, self.btn_upload)
         self.setTabOrder(self.btn_upload, self.btn_clear)
         self.setTabOrder(self.btn_clear, self.btn_analyze)
 
     def _setup_validators(self):
         self.name_regex = QRegularExpression(r"^[A-Za-z][A-Za-z\s\-']*$")
         self.p_name.setValidator(QRegularExpressionValidator(self.name_regex, self))
+
+        # Visual acuity validator (20/XX or 6/XX format)
+        self.va_regex = QRegularExpression(r"^(20|6)/\d{1,3}$")
+        va_validator = QRegularExpressionValidator(self.va_regex, self)
+        self.va_left.setValidator(va_validator)
+        self.va_right.setValidator(va_validator)
+
+        # Connect blood pressure and glucose validation
+        self.bp_systolic.editingFinished.connect(self._validate_blood_pressure)
+        self.bp_diastolic.editingFinished.connect(self._validate_blood_pressure)
+        self.fbs.editingFinished.connect(self._validate_blood_glucose)
+        self.rbs.editingFinished.connect(self._validate_blood_glucose)
 
     def _validate_patient_basics(self):
         name = self.p_name.text().strip()
@@ -860,6 +1225,173 @@ class ScreeningPage(QWidget):
         if date < self.min_dob_date or date > QDate.currentDate():
             return QDate()
         return date
+
+    def _on_diagnosis_date_changed(self, text):
+        """Format diagnosis date input and auto-calculate duration."""
+        digits = "".join(ch for ch in text if ch.isdigit())[:8]
+
+        if len(digits) <= 2:
+            formatted = digits
+        elif len(digits) <= 4:
+            formatted = f"{digits[:2]}/{digits[2:]}"
+        else:
+            formatted = f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
+
+        if formatted != text:
+            self.diabetes_diagnosis_date.blockSignals(True)
+            self.diabetes_diagnosis_date.setText(formatted)
+            self.diabetes_diagnosis_date.blockSignals(False)
+            self.diabetes_diagnosis_date.setCursorPosition(len(formatted))
+
+        # Validate and style
+        self._update_diagnosis_date_style(digits)
+
+        # Auto-calculate duration
+        self._update_duration_from_diagnosis_date()
+
+    def _update_diagnosis_date_style(self, digits):
+        """Apply red border if invalid diagnosis date."""
+        has_invalid_value = False
+
+        # Check day first digit
+        if len(digits) >= 1 and int(digits[0]) > 3:
+            has_invalid_value = True
+
+        # Check day range (1-31)
+        if len(digits) >= 2:
+            day = int(digits[:2])
+            if day < 1 or day > 31:
+                has_invalid_value = True
+
+        # Check month first digit
+        if len(digits) >= 3 and int(digits[2]) > 1:
+            has_invalid_value = True
+
+        # Check month range (1-12)
+        if len(digits) >= 4:
+            month = int(digits[2:4])
+            if month < 1 or month > 12:
+                has_invalid_value = True
+
+        # Full validation
+        if len(digits) == 8:
+            diag_date = self._get_diagnosis_date()
+            dob_date = self._get_dob_date()
+            if not diag_date.isValid():
+                has_invalid_value = True
+            elif diag_date > QDate.currentDate():
+                has_invalid_value = True
+            elif dob_date.isValid() and diag_date < dob_date:
+                has_invalid_value = True
+
+        # Apply styling
+        invalid_style = """
+            QLineEdit {
+                background: #ffffff;
+                border: 1.5px solid #dc3545;
+                border-radius: 6px;
+                padding: 6px 8px;
+            }
+        """
+        default_style = """
+            QLineEdit {
+                background: #ffffff;
+                border: 1px solid #6c757d;
+                border-radius: 6px;
+                padding: 6px 8px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0d6efd;
+            }
+        """
+        self.diabetes_diagnosis_date.setStyleSheet(invalid_style if has_invalid_value else default_style)
+
+    def _get_diagnosis_date(self):
+        """Parse and validate diagnosis date from text field."""
+        date = QDate.fromString(self.diabetes_diagnosis_date.text().strip(), "dd/MM/yyyy")
+
+        if not date.isValid():
+            return QDate()
+        if date < QDate(1900, 1, 1) or date > QDate.currentDate():
+            return QDate()
+
+        # Check if diagnosis date is after birth date
+        dob_date = self._get_dob_date()
+        if dob_date.isValid() and date < dob_date:
+            return QDate()
+
+        return date
+
+    def _update_duration_from_diagnosis_date(self):
+        """Auto-calculate diabetes duration from diagnosis date."""
+        diag_date = self._get_diagnosis_date()
+        if not diag_date.isValid():
+            self.diabetes_duration.setValue(0)
+            return
+
+        today = QDate.currentDate()
+        years = today.year() - diag_date.year()
+        if (today.month(), today.day()) < (diag_date.month(), diag_date.day()):
+            years -= 1
+
+        self.diabetes_duration.setValue(max(0, years))
+
+    def _validate_blood_pressure(self):
+        """Validate blood pressure ranges."""
+        sys = self.bp_systolic.value()
+        dia = self.bp_diastolic.value()
+
+        # Both must be zero or both must be filled
+        if (sys == 0) != (dia == 0):
+            QMessageBox.warning(
+                self, "Blood Pressure",
+                "Please enter both systolic and diastolic values, or leave both empty."
+            )
+            return False
+
+        # If filled, check ranges
+        if sys > 0:
+            if sys < 80 or sys > 200:
+                QMessageBox.warning(
+                    self, "Blood Pressure",
+                    "Systolic pressure should be between 80-200 mmHg.\nIf this reading is correct, please document in clinical notes."
+                )
+                return False
+            if dia < 50 or dia > 130:
+                QMessageBox.warning(
+                    self, "Blood Pressure",
+                    "Diastolic pressure should be between 50-130 mmHg.\nIf this reading is correct, please document in clinical notes."
+                )
+                return False
+            if dia >= sys:
+                QMessageBox.warning(
+                    self, "Blood Pressure",
+                    "Diastolic pressure must be lower than systolic pressure."
+                )
+                return False
+
+        return True
+
+    def _validate_blood_glucose(self):
+        """Validate blood glucose ranges."""
+        fbs = self.fbs.value()
+        rbs = self.rbs.value()
+
+        if fbs > 0 and (fbs < 70 or fbs > 400):
+            QMessageBox.warning(
+                self, "Blood Glucose",
+                "Fasting blood sugar should be between 70-400 mg/dL.\nIf this reading is correct, please document in clinical notes."
+            )
+            return False
+
+        if rbs > 0 and (rbs < 70 or rbs > 600):
+            QMessageBox.warning(
+                self, "Blood Glucose",
+                "Random blood sugar should be between 70-600 mg/dL.\nIf this reading is correct, please document in clinical notes."
+            )
+            return False
+
+        return True
 
     def create_patient_info_page(self):
         container = QWidget()
@@ -1159,9 +1691,7 @@ class ScreeningPage(QWidget):
         self.prev_treatment.setChecked(False)
         self.notes.clear()
         self.current_image = None
-        self.image_label.clear()
-        self.image_label.setText("No image loaded")
-        self.image_label.setStyleSheet("border: 2px dashed #ccc; background-color: #f9f9f9;")
+        self._apply_upload_placeholder_style()
         self.last_result_class = "Pending"
         self.last_result_conf = "Pending"
         self._current_eye_saved = False
@@ -1175,13 +1705,7 @@ class ScreeningPage(QWidget):
         )
         if path:
             self.current_image = path
-            pixmap = QPixmap(path).scaled(
-                450,
-                400,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.image_label.setPixmap(pixmap)
+            self._set_preview_image(path)
             self.btn_analyze.setEnabled(True)
 
     def screen_another_image(self):
@@ -1193,12 +1717,7 @@ class ScreeningPage(QWidget):
             return
         self.current_image = path
         # Update the upload panel too so it stays in sync
-        pixmap = QPixmap(path).scaled(
-            450, 400,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.image_label.setPixmap(pixmap)
+        self._set_preview_image(path)
         self.btn_analyze.setEnabled(True)
 
         # Re-run inference with the new image
@@ -1221,6 +1740,22 @@ class ScreeningPage(QWidget):
         self._worker.error.connect(self._on_inference_error)
         self._worker.ungradable.connect(self._on_image_ungradable)
         self._worker.start()
+
+    def _set_preview_image(self, path: str):
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return
+        target_size = self.image_label.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            target_size = QSize(320, 260)
+        scaled = pixmap.scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.image_label.setText("")
+        self._apply_upload_loaded_style()
+        self.image_label.setPixmap(scaled)
 
     def open_results_window(self):
         if not self._validate_patient_basics():
@@ -1323,6 +1858,17 @@ class ScreeningPage(QWidget):
 
     def _collect_patient_data(self) -> dict:
         """Snapshot the current intake form into a plain dict for the explanation generator."""
+        # Collect symptoms
+        symptoms = []
+        if self.symptom_blurred.isChecked():
+            symptoms.append("Blurred vision")
+        if self.symptom_floaters.isChecked():
+            symptoms.append("Floaters")
+        if self.symptom_flashes.isChecked():
+            symptoms.append("Flashes")
+        if self.symptom_vision_loss.isChecked():
+            symptoms.append("Vision loss")
+
         return {
             "age":            self.p_age.value(),
             "hba1c":          self.hba1c.value(),
@@ -1330,18 +1876,32 @@ class ScreeningPage(QWidget):
             "prev_treatment": self.prev_treatment.isChecked(),
             "diabetes_type":  self.diabetes_type.currentText(),
             "eye":            self.p_eye.currentText(),
+            # New fields
+            "va_left":        self.va_left.text().strip(),
+            "va_right":       self.va_right.text().strip(),
+            "bp_systolic":    self.bp_systolic.value() if self.bp_systolic.value() > 0 else None,
+            "bp_diastolic":   self.bp_diastolic.value() if self.bp_diastolic.value() > 0 else None,
+            "fbs":            self.fbs.value() if self.fbs.value() > 0 else None,
+            "rbs":            self.rbs.value() if self.rbs.value() > 0 else None,
+            "symptoms":       symptoms,
         }
+
 
     def clear_image(self):
         self.current_image = None
-        self.image_label.clear()
-        self.image_label.setText("No image loaded")
-        self.image_label.setStyleSheet("border: 2px dashed #ccc; background-color: #f9f9f9;")
+        self._apply_upload_placeholder_style()
         self.btn_analyze.setEnabled(False)
 
     def save_screening(self, reset_after=True):
         if not self._validate_patient_basics():
             return
+
+        # Validate new fields
+        if not self._validate_blood_pressure():
+            return
+        if not self._validate_blood_glucose():
+            return
+
         name = self.p_name.text().strip()
 
         pid = self.p_id.text().strip()
@@ -1350,6 +1910,9 @@ class ScreeningPage(QWidget):
 
         dob_date = self._get_dob_date()
         dob_str = dob_date.toString("yyyy-MM-dd") if dob_date.isValid() else ""
+
+        diag_date = self._get_diagnosis_date()
+        diag_date_str = diag_date.toString("yyyy-MM-dd") if diag_date.isValid() else ""
 
         age = self.p_age.value()
         sex = self.p_sex.currentText()
@@ -1362,6 +1925,20 @@ class ScreeningPage(QWidget):
         notes = self.notes.toPlainText().strip()
         result = self.last_result_class
         confidence = self.last_result_conf
+
+        # New fields
+        va_left = self.va_left.text().strip()
+        va_right = self.va_right.text().strip()
+        bp_sys = str(self.bp_systolic.value()) if self.bp_systolic.value() > 0 else ""
+        bp_dia = str(self.bp_diastolic.value()) if self.bp_diastolic.value() > 0 else ""
+        fbs_val = str(self.fbs.value()) if self.fbs.value() > 0 else ""
+        rbs_val = str(self.rbs.value()) if self.rbs.value() > 0 else ""
+
+        # Symptoms as Yes/No flags
+        symptom_blurred_flag = "Yes" if self.symptom_blurred.isChecked() else "No"
+        symptom_floaters_flag = "Yes" if self.symptom_floaters.isChecked() else "No"
+        symptom_flashes_flag = "Yes" if self.symptom_flashes.isChecked() else "No"
+        symptom_vision_loss_flag = "Yes" if self.symptom_vision_loss.isChecked() else "No"
 
         patient_data = [
             pid,
@@ -1378,6 +1955,18 @@ class ScreeningPage(QWidget):
             notes,
             result,
             confidence,
+            # New fields (11 columns)
+            va_left,
+            va_right,
+            bp_sys,
+            bp_dia,
+            fbs_val,
+            rbs_val,
+            diag_date_str,
+            symptom_blurred_flag,
+            symptom_floaters_flag,
+            symptom_flashes_flag,
+            symptom_vision_loss_flag,
         ]
 
         if not self._save_screening_to_db(patient_data):
@@ -1465,8 +2054,16 @@ class ScreeningPage(QWidget):
             cur.execute(
                 """
                 INSERT INTO patient_records (
-                    patient_id, name, birthdate, age, sex, contact, eyes, diabetes_type, duration, hba1c, prev_treatment, notes, result, confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    patient_id, name, birthdate, age, sex, contact, eyes,
+                    diabetes_type, duration, hba1c, prev_treatment, notes,
+                    result, confidence,
+                    visual_acuity_left, visual_acuity_right,
+                    blood_pressure_systolic, blood_pressure_diastolic,
+                    fasting_blood_sugar, random_blood_sugar,
+                    diabetes_diagnosis_date,
+                    symptom_blurred_vision, symptom_floaters,
+                    symptom_flashes, symptom_vision_loss
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 patient_data,
             )
@@ -1494,6 +2091,10 @@ class ScreeningPage(QWidget):
             item = self._scr_patient_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
             if item and item.widget():
                 item.widget().setText(text)
+                item.widget().setStyleSheet(
+                    "color: #212529; background: transparent; border: none;"
+                    "font-size: 13px; font-weight: 600;"
+                )
         clinical_labels = [
             pack["scr_label_diabetes"], pack["scr_label_duration"], pack["scr_label_hba1c"],
             None,
@@ -1505,6 +2106,10 @@ class ScreeningPage(QWidget):
             item = self._scr_clinical_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
             if item and item.widget():
                 item.widget().setText(text)
+                item.widget().setStyleSheet(
+                    "color: #212529; background: transparent; border: none;"
+                    "font-size: 13px; font-weight: 600;"
+                )
 
 def _generate_explanation(
     result_class: str,
@@ -1835,74 +2440,6 @@ class ResultsWindow(QWidget):
         explanation_layout.addWidget(self.explanation_hint)
         layout.addWidget(explanation_group)
 
-        # ── Model Comparison panel ────────────────────────────────────────────
-        self._cmp_worker: "_ComparisonWorker | None" = None
-        cmp_group = QGroupBox("Model Comparison")
-        cmp_group.setObjectName("cmpGroup")
-        cmp_layout = QVBoxLayout(cmp_group)
-        cmp_layout.setContentsMargins(14, 16, 14, 14)
-        cmp_layout.setSpacing(10)
-
-        cmp_selector_row = QHBoxLayout()
-        cmp_lbl = QLabel("Compare with:")
-        cmp_lbl.setStyleSheet("font-size:13px;font-weight:600;color:#212529;")
-        cmp_lbl.setFixedWidth(110)
-        self._cmp_combo = QComboBox()
-        self._cmp_combo.setMinimumWidth(240)
-        self._btn_run_cmp = QPushButton("Run Comparison")
-        self._btn_run_cmp.setObjectName("primaryAction")
-        self._btn_run_cmp.setMinimumHeight(38)
-        self._btn_run_cmp.setEnabled(False)
-        self._btn_run_cmp.clicked.connect(self._run_comparison)
-        cmp_selector_row.addWidget(cmp_lbl)
-        cmp_selector_row.addWidget(self._cmp_combo, 1)
-        cmp_selector_row.addWidget(self._btn_run_cmp)
-        cmp_layout.addLayout(cmp_selector_row)
-
-        self._cmp_loading_bar = QProgressBar()
-        self._cmp_loading_bar.setRange(0, 0)
-        self._cmp_loading_bar.setFixedHeight(5)
-        self._cmp_loading_bar.setTextVisible(False)
-        self._cmp_loading_bar.setStyleSheet("""
-            QProgressBar { background:#e9ecef; border:none; border-radius:3px; }
-            QProgressBar::chunk { background:#6f42c1; border-radius:3px; }
-        """)
-        self._cmp_loading_bar.hide()
-        cmp_layout.addWidget(self._cmp_loading_bar)
-
-        cmp_results_row = QHBoxLayout()
-        cmp_results_row.setSpacing(14)
-
-        cmp_heatmap_group = QGroupBox("Comparison Heatmap")
-        cmp_heatmap_layout = QVBoxLayout(cmp_heatmap_group)
-        cmp_heatmap_layout.setContentsMargins(10, 14, 10, 10)
-        self._cmp_heatmap_label = ClickableImageLabel("", "Comparison Heatmap")
-        self._cmp_heatmap_label.setMinimumSize(380, 280)
-        self._cmp_heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cmp_heatmap_label.setWordWrap(True)
-        cmp_heatmap_layout.addWidget(self._cmp_heatmap_label)
-        cmp_results_row.addWidget(cmp_heatmap_group, 1)
-
-        cmp_stats_col = QVBoxLayout()
-        cmp_stats_col.setSpacing(10)
-        cmp_class_card, self._cmp_class_value = self._create_stat_card("Comparison Grade")
-        cmp_conf_card,  self._cmp_conf_value  = self._create_stat_card("Comparison Confidence")
-        cmp_rec_card,   self._cmp_rec_value   = self._create_stat_card("Recommendation")
-        cmp_stats_col.addWidget(cmp_class_card)
-        cmp_stats_col.addWidget(cmp_conf_card)
-        cmp_stats_col.addWidget(cmp_rec_card)
-        cmp_stats_col.addStretch()
-        cmp_results_row.addLayout(cmp_stats_col, 1)
-        cmp_layout.addLayout(cmp_results_row)
-
-        self._cmp_error_label = QLabel("")
-        self._cmp_error_label.setWordWrap(True)
-        self._cmp_error_label.setStyleSheet("color:#dc3545;font-size:12px;")
-        self._cmp_error_label.hide()
-        cmp_layout.addWidget(self._cmp_error_label)
-        layout.addWidget(cmp_group)
-        self._cmp_group = cmp_group
-
     def _is_dark_theme(self) -> bool:
         bg = self.palette().color(QPalette.ColorRole.Window)
         fg = self.palette().color(QPalette.ColorRole.WindowText)
@@ -2071,70 +2608,6 @@ class ResultsWindow(QWidget):
         )
         self.btn_report.setEnabled(_report_ready)
 
-        # ── Comparison panel state ────────────────────────────────────────────
-        if is_loading:
-            # New screening started — reset comparison panel
-            self._cmp_class_value.setText("—")
-            self._cmp_conf_value.setText("—")
-            self._cmp_rec_value.setText("—")
-            self._cmp_heatmap_label.clear_view("")
-            self._cmp_error_label.hide()
-            # Populate model list (exclude active model)
-            try:
-                from model_inference import list_available_models, MODEL_PATH as _active_path
-                self._cmp_combo.clear()
-                for mp in list_available_models():
-                    if os.path.abspath(mp) != os.path.abspath(_active_path):
-                        self._cmp_combo.addItem(os.path.basename(mp), mp)
-            except Exception:
-                pass
-            self._btn_run_cmp.setEnabled(False)
-        elif _report_ready:
-            self._btn_run_cmp.setEnabled(self._cmp_combo.count() > 0)
-
-    def _run_comparison(self):
-        if not self._current_image_path:
-            return
-        model_path = self._cmp_combo.currentData()
-        if not model_path:
-            return
-        self._btn_run_cmp.setEnabled(False)
-        self._cmp_loading_bar.show()
-        self._cmp_error_label.hide()
-        self._cmp_class_value.setText("Analyzing…")
-        self._cmp_conf_value.setText("—")
-        self._cmp_rec_value.setText("—")
-        self._cmp_heatmap_label.clear_view("")
-
-        self._cmp_worker = _ComparisonWorker(self._current_image_path, model_path)
-        self._cmp_worker.result_ready.connect(self._on_comparison_result)
-        self._cmp_worker.finished.connect(self._on_comparison_done)
-        self._cmp_worker.error.connect(self._on_comparison_error)
-        self._cmp_worker.start()
-
-    def _on_comparison_result(self, label: str, conf: str):
-        self._cmp_class_value.setText(label)
-        grade_color = _DR_COLORS.get(label, "#1f2937")
-        self._cmp_class_value.setStyleSheet(
-            f"color:{grade_color};font-size:20px;font-weight:700;"
-        )
-        self._cmp_conf_value.setText(conf)
-        self._cmp_rec_value.setText(_DR_RECOMMENDATIONS.get(label, "Consult a clinician"))
-
-    def _on_comparison_done(self, label: str, conf: str, class_idx: int, heatmap_path: str):
-        self._cmp_loading_bar.hide()
-        self._btn_run_cmp.setEnabled(True)
-        self._on_comparison_result(label, conf)
-        if heatmap_path and os.path.isfile(heatmap_path):
-            self._cmp_heatmap_label.set_viewable_pixmap(QPixmap(heatmap_path), 460, 360)
-
-    def _on_comparison_error(self, msg: str):
-        self._cmp_loading_bar.hide()
-        self._btn_run_cmp.setEnabled(True)
-        self._cmp_class_value.setText("Error")
-        self._cmp_error_label.setText(f"Comparison failed: {msg}")
-        self._cmp_error_label.show()
-
     def mark_saved(self, name, eye_label, result_class):
         """Called by ScreeningPage after a successful save to update this panel."""
         self.save_status_label.setText(f"\u2713  Saved \u2014 {name} ({eye_label}): {result_class}")
@@ -2227,6 +2700,28 @@ class ResultsWindow(QWidget):
         prev_tx       = "Yes" if pp and hasattr(pp, "prev_treatment") and pp.prev_treatment.isChecked() else "No"
         notes         = pp.notes.toPlainText().strip()       if pp and hasattr(pp, "notes")             else ""
 
+        # Collect new fields
+        va_left       = pp.va_left.text().strip()            if pp and hasattr(pp, "va_left")           else ""
+        va_right      = pp.va_right.text().strip()           if pp and hasattr(pp, "va_right")          else ""
+        bp_sys        = str(pp.bp_systolic.value())          if pp and hasattr(pp, "bp_systolic") and pp.bp_systolic.value() > 0 else ""
+        bp_dia        = str(pp.bp_diastolic.value())         if pp and hasattr(pp, "bp_diastolic") and pp.bp_diastolic.value() > 0 else ""
+        fbs_val       = str(pp.fbs.value())                  if pp and hasattr(pp, "fbs") and pp.fbs.value() > 0 else ""
+        rbs_val       = str(pp.rbs.value())                  if pp and hasattr(pp, "rbs") and pp.rbs.value() > 0 else ""
+        diag_date     = pp.diabetes_diagnosis_date.text().strip() if pp and hasattr(pp, "diabetes_diagnosis_date") else ""
+
+        # Collect symptoms
+        symptoms = []
+        if pp:
+            if hasattr(pp, "symptom_blurred") and pp.symptom_blurred.isChecked():
+                symptoms.append("Blurred vision")
+            if hasattr(pp, "symptom_floaters") and pp.symptom_floaters.isChecked():
+                symptoms.append("Floaters")
+            if hasattr(pp, "symptom_flashes") and pp.symptom_flashes.isChecked():
+                symptoms.append("Flashes")
+            if hasattr(pp, "symptom_vision_loss") and pp.symptom_vision_loss.isChecked():
+                symptoms.append("Vision loss")
+        symptoms_str = ", ".join(symptoms)
+
         recommendation = _DR_RECOMMENDATIONS.get(self._current_result_class, "Consult a clinician")
         grade_color    = _DR_COLORS.get(self._current_result_class, "#1f2937")
         explanation    = self.explanation.text()
@@ -2252,7 +2747,25 @@ class ResultsWindow(QWidget):
         result_safe = _safe(self._current_result_class)
         confidence_safe = _safe(self._current_confidence)
         recommendation_safe = _safe(recommendation)
-        explanation_safe = _safe(explanation or "No clinical analysis available.")
+        notes_compact_safe = _safe((notes[:220] + "...") if len(notes) > 220 else notes)
+
+        # Format new fields
+        va_left_safe = _safe(va_left)
+        va_right_safe = _safe(va_right)
+        bp_safe = _safe(f"{bp_sys}/{bp_dia} mmHg" if bp_sys and bp_dia else "")
+        fbs_safe = _safe(f"{fbs_val} mg/dL" if fbs_val else "")
+        rbs_safe = _safe(f"{rbs_val} mg/dL" if rbs_val else "")
+        diag_date_safe = _safe(diag_date)
+        symptoms_safe = _safe(symptoms_str)
+
+        explanation_text = (explanation or "No clinical analysis available.").strip()
+        explanation_html = explanation_text
+        explanation_html = explanation_html.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>").replace("&lt;br /&gt;", "<br>")
+        explanation_html = explanation_html.replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")
+        explanation_html = explanation_html.replace("</b>1", "</b> ")
+        explanation_html = re.sub(r"\s+", " ", explanation_html).strip()
+        if "<br" not in explanation_html.lower() and "<p" not in explanation_html.lower():
+            explanation_html = escape(explanation_text).replace("\n\n", "<br><br>").replace("\n", "<br>")
 
         # Build QTextDocument with embedded images
         doc = QTextDocument()
@@ -2279,14 +2792,6 @@ class ResultsWindow(QWidget):
                 doc.addResource(QTextDocument.ImageResource, QUrl("hmap_img"), hmap_px)
             heatmap_img_html = '<img src="hmap_img" />'
 
-        try:
-            import model_inference as _mi
-            _arch      = _mi._model_architecture
-            _mname     = os.path.basename(_mi.MODEL_PATH)
-            model_info = f"Architecture: {_arch} &nbsp;|&nbsp; Model file: {_mname} &nbsp;|&nbsp; Task: 5-class DR grading"
-        except Exception:
-            model_info = "EyeShield AI Model — offline diabetic retinopathy classification"
-
         html = f"""<!DOCTYPE html><html><head><style>
 body {{
     margin: 0;
@@ -2295,42 +2800,69 @@ body {{
     background: #ffffff;
     font-family: 'Inter', 'Roboto', 'Open Sans', 'Segoe UI', Arial, sans-serif;
     font-size: 11pt;
-    line-height: 1.4;
+    line-height: 1.5;
 }}
-.report {{ padding: 0 26px 22px 26px; }}
+.report {{ padding: 0 20px 14px 20px; }}
 .header {{
     background: #eef4fb;
     color: #1f2937;
-    padding: 14px 26px 12px 26px;
+    padding: 14px 20px 12px 20px;
     border-bottom: 2px solid #d7e3f1;
 }}
 .header h1 {{
     margin: 0;
-    font-size: 20pt;
+    font-size: 17pt;
     font-weight: 700;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.3px;
     color: #1f2937;
 }}
 .header p {{ margin: 4px 0 0 0; font-size: 10pt; color: #475569; }}
-.section {{ margin-top: 12px; padding-top: 10px; border-top: 1px solid #dbe3ea; }}
+.section {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid #dbe3ea; }}
 .section-title {{
-    margin: 0 0 8px 0;
-    font-size: 15pt;
+    margin: 0 0 10px 0;
+    font-size: 13pt;
     color: #0f3d66;
     font-weight: 700;
 }}
-table.grid {{ width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11pt; }}
-table.grid td {{ border: 1px solid #dce4ec; padding: 6px 8px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }}
-td.label {{ width: 20%; background: #f6f9fc; font-weight: 700; color: #334155; }}
-td.value {{ width: 30%; font-weight: 400; color: #111827; }}
-.result-pill {{ color: {grade_color}; font-weight: 700; font-size: 13pt; }}
+.cards {{ width: 100%; }}
+.card {{
+    display: inline-block;
+    width: 48.7%;
+    vertical-align: top;
+    border: 1px solid #dce4ec;
+    border-radius: 8px;
+    background: #fbfdff;
+    margin-right: 2.6%;
+}}
+.card:last-child {{ margin-right: 0; }}
+.card-title {{
+    margin: 0;
+    padding: 9px 12px;
+    font-size: 11pt;
+    font-weight: 700;
+    color: #0f3d66;
+    border-bottom: 1px solid #e6edf5;
+    background: #f3f8ff;
+}}
+.fact {{
+    padding: 8px 12px;
+    border-bottom: 1px solid #edf2f8;
+    font-size: 10.5pt;
+    line-height: 1.5;
+}}
+.fact:last-child {{ border-bottom: none; }}
+.fact-label {{ color: #334155; font-weight: 600; }}
+.fact-value {{ color: #111827; font-weight: 500; }}
+.result-pill {{ color: {grade_color}; font-weight: 700; font-size: 11.5pt; }}
 .analysis {{
     border: 1px solid #dce4ec;
     background: #f8fbff;
-    padding: 9px 10px;
+    padding: 12px 14px;
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow-wrap: anywhere;
+    font-size: 10.5pt;
+    line-height: 1.6;
 }}
 table.images {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
 table.images td {{
@@ -2340,22 +2872,22 @@ table.images td {{
     text-align: center;
     padding: 8px;
 }}
-.image-caption {{ margin-top: 6px; color: #475569; font-size: 10pt; font-weight: 600; }}
+.image-caption {{ margin-top: 6px; color: #475569; font-size: 9.5pt; font-weight: 600; }}
 .image-empty {{
-    min-height: 150px;
-    padding-top: 56px;
+    min-height: 120px;
+    padding-top: 44px;
+    font-size: 9.5pt;
     color: #64748b;
     border: 1px dashed #cbd5e1;
     background: #f8fafc;
 }}
 .footer {{
-    margin-top: 14px;
+    margin-top: 12px;
     padding-top: 8px;
     border-top: 1px solid #dce4ec;
     font-size: 9.5pt;
     color: #4b5563;
 }}
-.brand {{ text-align: center; margin-top: 8px; font-size: 8.5pt; color: #94a3b8; }}
 </style></head><body>
 <div class="header">
     <h1>Patient Report</h1>
@@ -2364,45 +2896,33 @@ table.images td {{
 <div class="report">
 
 <div class="section">
-    <h2 class="section-title">Patient Information</h2>
-    <table class="grid">
-  <tr>
-          <td class="label">Patient Name</td><td class="value">{patient_name_safe}</td>
-          <td class="label">Patient Record</td><td class="value">{patient_id_safe}</td>
-  </tr>
-  <tr>
-        <td class="label">Date of Birth</td><td class="value">{dob_safe}</td>
-        <td class="label">Age</td><td class="value">{age_safe}</td>
-  </tr>
-  <tr>
-        <td class="label">Sex</td><td class="value">{sex_safe}</td>
-        <td class="label">Contact</td><td class="value">{contact_safe}</td>
-  </tr>
-  <tr>
-        <td class="label">Eye Screened</td><td class="value">{eye_safe}</td>
-        <td class="label">Screening Date</td><td class="value">{screening_date_safe}</td>
-  </tr>
-</table>
+    <div class="cards">
+        <div class="card">
+            <h3 class="card-title">Patient Information</h3>
+            <div class="fact"><span class="fact-label">Patient Name:</span> <span class="fact-value">{patient_name_safe}</span></div>
+            <div class="fact"><span class="fact-label">Patient Record:</span> <span class="fact-value">{patient_id_safe}</span></div>
+            <div class="fact"><span class="fact-label">Date of Birth:</span> <span class="fact-value">{dob_safe}</span></div>
+            <div class="fact"><span class="fact-label">Age:</span> <span class="fact-value">{age_safe}</span></div>
+            <div class="fact"><span class="fact-label">Sex:</span> <span class="fact-value">{sex_safe}</span></div>
+            <div class="fact"><span class="fact-label">Contact:</span> <span class="fact-value">{contact_safe}</span></div>
+            <div class="fact"><span class="fact-label">Eye Screened:</span> <span class="fact-value">{eye_safe}</span></div>
+            <div class="fact"><span class="fact-label">Screening Date:</span> <span class="fact-value">{screening_date_safe}</span></div>
+            <div class="fact"><span class="fact-label">Diabetes Type:</span> <span class="fact-value">{diabetes_type_safe}</span></div>
+            <div class="fact"><span class="fact-label">Duration:</span> <span class="fact-value">{duration_safe}</span></div>
+            <div class="fact"><span class="fact-label">HbA1c:</span> <span class="fact-value">{hba1c_safe}</span></div>
+            <div class="fact"><span class="fact-label">Previous Treatment:</span> <span class="fact-value">{prev_tx_safe}</span></div>
+        </div><div class="card">
+            <h3 class="card-title">Screening Results</h3>
+            <div class="fact"><span class="fact-label">Classification:</span> <span class="fact-value"><span class="result-pill">{result_safe}</span></span></div>
+            <div class="fact"><span class="fact-label">Confidence:</span> <span class="fact-value">{confidence_safe}</span></div>
+            <div class="fact"><span class="fact-label">Recommendation:</span> <span class="fact-value">{recommendation_safe}</span></div>
+        </div>
+    </div>
 
 </div>
 
 <div class="section">
-    <h2 class="section-title">Screening Results</h2>
-    <table class="grid">
-  <tr>
-        <td class="label">Classification</td>
-        <td class="value" colspan="3"><span class="result-pill">{result_safe}</span></td>
-  </tr>
-  <tr>
-        <td class="label">Confidence</td><td class="value">{confidence_safe}</td>
-        <td class="label">Recommendation</td><td class="value">{recommendation_safe}</td>
-  </tr>
-</table>
-
-</div>
-
-<div class="section">
-    <h2 class="section-title">Image / Scan Results</h2>
+    <h2 class="section-title">Image Results</h2>
     <table class="images">
   <tr>
         <td>{source_img_html}<div class="image-caption">Source Fundus Image</div></td>
@@ -2413,33 +2933,12 @@ table.images td {{
 </div>
 
 <div class="section">
-    <h2 class="section-title">Clinical Notes or Analysis</h2>
-    <table class="grid">
-  <tr>
-        <td class="label">Diabetes Type</td><td class="value">{diabetes_type_safe}</td>
-        <td class="label">Duration</td><td class="value">{duration_safe}</td>
-  </tr>
-    <tr>
-        <td class="label">HbA1c</td><td class="value">{hba1c_safe}</td>
-        <td class="label">Previous Treatment</td><td class="value">{prev_tx_safe}</td>
-    </tr>
-    <tr>
-        <td class="label">Clinical Notes</td><td class="value" colspan="3">{notes_safe}</td>
-    </tr>
-</table>
-    <div class="analysis" style="margin-top: 8px;">{explanation_safe}</div>
+    <h2 class="section-title">Clinical Analysis</h2>
+    <div class="card" style="display:block; width:100%; margin-right:0;">
+        <div class="fact"><span class="fact-label">Clinical Notes:</span> <span class="fact-value">{notes_compact_safe}</span></div>
+    </div>
+    <div class="analysis" style="margin-top: 6px;">{explanation_html}</div>
 </div>
-
-<div class="section">
-    <h2 class="section-title">Final Assessment / Recommendation</h2>
-    <div class="analysis">{recommendation_safe}</div>
-    <div style="margin-top: 8px; font-size: 10pt; color: #475569;">{model_info}</div>
-</div>
-
-<div class="footer">
-This report supports clinical decision-making and does not replace professional medical evaluation.
-</div>
-<div class="brand">EyeShield EMR</div>
 
 </div></body></html>"""
 
