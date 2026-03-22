@@ -45,9 +45,13 @@ if __name__ == "__main__":
 
     # Set application-wide icon
     import os
-    _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons", "eyeshield_icon.svg")
-    app.setWindowIcon(load_svg_icon(_icon_path))
-    app.setWindowIcon(load_svg_icon(_icon_path))
+    _icon_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
+    _logo_path = os.path.join(_icon_dir, "Logo.png")
+    _fallback_icon_path = os.path.join(_icon_dir, "eyeshield_icon.svg")
+    if os.path.isfile(_logo_path):
+        app.setWindowIcon(QIcon(_logo_path))
+    else:
+        app.setWindowIcon(load_svg_icon(_fallback_icon_path))
 
     # Initialize the database
     UserManager._init_db()

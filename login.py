@@ -7,8 +7,8 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QLineEdit,
     QVBoxLayout, QHBoxLayout, QCheckBox, QMessageBox, QDialog, QFrame
 )
-from PySide6.QtGui import QAction, QIcon, QDesktopServices
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QAction, QIcon, QDesktopServices, QPixmap
+from PySide6.QtCore import Qt, QUrl, QSize
 
 try:
     from user_auth import verify_user
@@ -61,7 +61,7 @@ class ContactAdminDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 32, 32, 28)
         layout.setSpacing(0)
-
+        
         # Title
         title = QLabel("Contact Administrator")
         title.setStyleSheet("""
@@ -213,7 +213,7 @@ class LoginWindow(QWidget):
         self.setFixedSize(500, 480)
         self.setStyleSheet("""
             QWidget#LoginWindow {
-                background-color: #0d1b2a;
+                background-color: #f4f8fc;
             }
         """)
         self.setObjectName("LoginWindow")
@@ -222,55 +222,59 @@ class LoginWindow(QWidget):
         layout.setContentsMargins(48, 44, 48, 40)
         layout.setSpacing(0)
 
-        # --- Logo row ---
-        logo_row = QHBoxLayout()
-        logo_row.setSpacing(12)
-        logo_row.setAlignment(Qt.AlignLeft)
+        # --- Header block (title above logo) ---
+        header_col = QVBoxLayout()
+        header_col.setSpacing(8)
+        header_col.setAlignment(Qt.AlignHCenter)
+
+        icon_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
+        logo_path = os.path.join(icon_dir, "Logo.png")
+        title_path = os.path.join(icon_dir, "title.png")
 
         logo_box = QLabel("👁")
-        logo_box.setFixedSize(44, 44)
+        logo_box.setFixedSize(64, 64)
         logo_box.setAlignment(Qt.AlignCenter)
         logo_box.setStyleSheet("""
             QLabel {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #378ADD, stop:1 #1D9E75);
-                border-radius: 12px;
-                font-size: 20px;
+                    stop:0 #cbe6ff, stop:1 #b7f0df);
+                border-radius: 18px;
+                border: 1px solid #b5d6f5;
+                font-size: 24px;
             }
         """)
+        if os.path.isfile(logo_path):
+            logo_pixmap = QPixmap(logo_path).scaled(QSize(54, 54), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            if not logo_pixmap.isNull():
+                logo_box.setText("")
+                logo_box.setPixmap(logo_pixmap)
+                logo_box.setStyleSheet("QLabel { background: transparent; border: none; }")
 
         title = QLabel("Eye<span style='color:#378ADD;'>Shield</span>")
         title.setTextFormat(Qt.RichText)
+        title.setAlignment(Qt.AlignHCenter)
         title.setStyleSheet("""
             QLabel {
-                color: #ffffff;
-                font-size: 22px;
+                color: #12355b;
+                font-size: 28px;
                 font-weight: 700;
                 background: transparent;
             }
         """)
+        if os.path.isfile(title_path):
+            title_pixmap = QPixmap(title_path).scaled(QSize(220, 52), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            if not title_pixmap.isNull():
+                title.setText("")
+                title.setPixmap(title_pixmap)
 
-        logo_row.addWidget(logo_box)
-        logo_row.addWidget(title)
-        logo_row.addStretch()
+        header_col.addWidget(title, 0, Qt.AlignHCenter)
+        header_col.addWidget(logo_box, 0, Qt.AlignHCenter)
 
-        # --- Tagline ---
-        tagline = QLabel("Your vision, our shield.")
-        tagline.setStyleSheet("""
-            QLabel {
-                color: rgba(255,255,255,0.35);
-                font-size: 10px;
-                letter-spacing: 1.5px;
-                background: transparent;
-                margin-top: 6px;
-                margin-bottom: 28px;
-            }
-        """)
 
         # --- Field label style ---
         field_label_style = """
             QLabel {
-                color: rgba(255,255,255,0.4);
+                color: #5d7590;
                 font-size: 10px;
                 font-weight: 600;
                 letter-spacing: 1px;
@@ -282,17 +286,17 @@ class LoginWindow(QWidget):
         # --- Input style ---
         input_style = """
             QLineEdit {
-                background-color: rgba(255,255,255,0.05);
-                border: 1px solid rgba(255,255,255,0.1);
+                background-color: #ffffff;
+                border: 1px solid #cfe0f2;
                 border-radius: 12px;
                 padding: 10px 14px;
                 font-size: 14px;
-                color: #ffffff;
+                color: #102a43;
                 min-height: 28px;
             }
             QLineEdit:focus {
-                border: 1px solid rgba(55,138,221,0.6);
-                background-color: rgba(55,138,221,0.06);
+                border: 1px solid #3d8fd6;
+                background-color: #f4faff;
             }
         """
 
@@ -314,41 +318,14 @@ class LoginWindow(QWidget):
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.setMinimumHeight(48)
         self.password_input.setStyleSheet(input_style)
-
-        # --- Options row ---
-        options_row = QHBoxLayout()
-
-        remember_cb = QCheckBox("Remember me")
-        remember_cb.setStyleSheet("""
-            QCheckBox {
-                color: rgba(255,255,255,0.4);
-                font-size: 13px;
-                background: transparent;
-                spacing: 6px;
-            }
-            QCheckBox::indicator {
-                width: 15px;
-                height: 15px;
-                border-radius: 4px;
-                border: 1px solid rgba(255,255,255,0.2);
-                background: transparent;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #378ADD;
-                border-color: #378ADD;
-            }
-        """)
-
-        options_row.addWidget(remember_cb)
-        options_row.addStretch()
-        
+  
         # --- Sign In button ---
         btn = QPushButton("Sign In")
         btn.setMinimumHeight(50)
         btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #378ADD, stop:1 #185FA5);
+                    stop:0 #4394dc, stop:1 #2f76bf);
                 color: white;
                 border: none;
                 border-radius: 12px;
@@ -358,11 +335,11 @@ class LoginWindow(QWidget):
             }
             QPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #4a96e8, stop:1 #1e6fb8);
+                    stop:0 #57a4ea, stop:1 #3785d1);
             }
             QPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2a6fb5, stop:1 #134d82);
+                    stop:0 #2f76bf, stop:1 #245f9a);
             }
         """)
         btn.clicked.connect(self.handle_login)
@@ -372,14 +349,14 @@ class LoginWindow(QWidget):
         footer_row.setAlignment(Qt.AlignCenter)
 
         footer = QLabel("Forgot password or need a new account?")
-        footer.setStyleSheet("color: rgba(255,255,255,0.2); font-size: 12px; background: transparent;")
+        footer.setStyleSheet("color: #7d93ab; font-size: 12px; background: transparent;")
 
         contact_btn = QPushButton("Contact admin")
         contact_btn.setCursor(Qt.PointingHandCursor)
         contact_btn.setFlat(True)
         contact_btn.setStyleSheet("""
             QPushButton {
-                color: #378ADD;
+                color: #2f76bf;
                 font-size: 12px;
                 background: transparent;
                 border: none;
@@ -387,7 +364,7 @@ class LoginWindow(QWidget):
                 margin-left: 4px;
             }
             QPushButton:hover {
-                color: #4a96e8;
+                color: #4294dd;
                 text-decoration: underline;
             }
         """)
@@ -402,15 +379,13 @@ class LoginWindow(QWidget):
         _add_eye_toggle(self.password_input)
 
         # --- Assemble layout ---
-        layout.addLayout(logo_row)
-        layout.addWidget(tagline)
+        layout.addLayout(header_col)
         layout.addWidget(username_label)
         layout.addWidget(self.username_input)
         layout.addSpacing(14)
         layout.addWidget(password_label)
         layout.addWidget(self.password_input)
         layout.addSpacing(14)
-        layout.addLayout(options_row)
         layout.addSpacing(24)
         layout.addWidget(btn)
         layout.addSpacing(16)

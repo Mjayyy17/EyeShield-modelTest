@@ -26,6 +26,7 @@ RETFound usage:
 """
 
 import os
+import contextlib
 import tempfile
 import threading
 import warnings
@@ -192,7 +193,17 @@ _ARCH_CONFIGS = {
 }
 
 _MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-MODEL_PATH = os.path.join(_MODEL_DIR, "best_model.pt")
+
+
+def _resolve_default_model_path() -> str:
+    """Use final_model as the default weights path, with best_model fallback."""
+    final_path = os.path.join(_MODEL_DIR, "final_model.pth")
+    if os.path.isfile(final_path):
+        return final_path
+    return os.path.join(_MODEL_DIR, "best_model.pt")
+
+
+MODEL_PATH = _resolve_default_model_path()
 
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _model: nn.Module | None = None   # lazy-loaded singleton

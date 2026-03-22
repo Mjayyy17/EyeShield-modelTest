@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────
+# EyeShield EMR – Python dependencies
+# Install with: pip install -r requirements.txt
+# ─────────────────────────────────────────────
+
+# GUI framework
+PySide6>=6.6.0
+
+# Deep learning (CPU build by default)
+# For GPU support, replace with the CUDA wheel from https://pytorch.org/get-started/locally/
+# e.g. pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Image processing (used by model_inference.py)
+Pillow>=10.0.0
+
+# Numerical computing (used by model_inference.py for Grad-CAM++ and jet colormap)
+numpy>=1.24.0
+
+# ─────────────────────────────────────────────
+# OPTIONAL – only needed for RETFound ViT model
+# ─────────────────────────────────────────────
+# timm>=0.9.0
+
+# ─────────────────────────────────────────────
+# BUILT-IN (no install needed – included with Python 3.8+)
+# ─────────────────────────────────────────────
+# sqlite3    – local patient + user database
+# hashlib    – password hashing (PBKDF2-SHA256)
+# hmac       – constant-time hash comparison
+# secrets    – cryptographic salt generation
+# json       – config.json / users_data.json I/O
+# re         – username / date validation
+# os         – path resolution
+# threading  – background model preload
+# tempfile   – Grad-CAM heatmap temp files
+# datetime   – age calculation, report timestamps
+# contextlib – suppress non-critical DB errors
+# warnings   – Grad-CAM failure soft-warnings
