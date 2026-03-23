@@ -633,15 +633,15 @@ class ReportsPage(QWidget):
         # ── grade maps ────────────────────────────────────────────────────────
         result_raw = str(full.get("result") or "").strip()
 
-        _COL   = {"No DR":"#166534","Mild DR":"#92400e","Moderate DR":"#9a3412","Severe DR":"#991b1b","Proliferative DR":"#7f1d1d"}
-        _BG    = {"No DR":"#f0fdf4","Mild DR":"#fefce8","Moderate DR":"#fff7ed","Severe DR":"#fff1f2","Proliferative DR":"#fff1f2"}
-        _BORDER= {"No DR":"#16a34a","Mild DR":"#d97706","Moderate DR":"#ea580c","Severe DR":"#dc2626","Proliferative DR":"#dc2626"}
-        _REC   = {"No DR":"Annual screening recommended","Mild DR":"6&#8211;12 month follow-up",
+        _COL   = {"No DR":"#166534","Mild DR":"#92400e","Moderate DR":"#9a3412","Severe DR":"#7f1d1d","Proliferative DR":"#6b1a1a"}
+        _BG    = {"No DR":"#f0fdf4","Mild DR":"#fefce8","Moderate DR":"#fff7ed","Severe DR":"#fff8f8","Proliferative DR":"#fff8f8"}
+        _BORDER= {"No DR":"#16a34a","Mild DR":"#d97706","Moderate DR":"#ea580c","Severe DR":"#c24141","Proliferative DR":"#b91c1c"}
+        _REC   = {"No DR":"Annual screening recommended","Mild DR":"Repeat screening in 6&#8211;12 months",
                   "Moderate DR":"Ophthalmology referral within 3 months","Severe DR":"Urgent ophthalmology referral",
                   "Proliferative DR":"Immediate ophthalmology referral"}
         _SUM   = {
             "No DR":"No signs of diabetic retinopathy were detected in this fundus image. Continue standard diabetes management, maintain optimal glycaemic and blood pressure control, and schedule routine annual retinal screening.",
-            "Mild DR":"Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. Intensify glycaemic and blood pressure management. A follow-up retinal examination in 6&#8211;12 months is recommended.",
+            "Mild DR":"Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. Intensify glycaemic and blood pressure management. A repeat retinal examination in 6&#8211;12 months is recommended.",
             "Moderate DR":"Features consistent with moderate non-proliferative diabetic retinopathy (NPDR) were detected, including microaneurysms, haemorrhages, and/or hard exudates. Referral to an ophthalmologist within 3 months is advised. Reassess systemic metabolic control.",
             "Severe DR":"Findings consistent with severe non-proliferative diabetic retinopathy (NPDR) were detected. The risk of progression to proliferative disease within 12 months is high. Urgent ophthalmology referral is required.",
             "Proliferative DR":"Proliferative diabetic retinopathy (PDR) was detected &#8212; a sight-threatening condition. Immediate ophthalmology referral is required for evaluation and potential intervention, such as laser photocoagulation or intravitreal anti-VEGF therapy.",
@@ -652,6 +652,22 @@ class ReportsPage(QWidget):
         gb  = _BORDER.get(result_raw, "#2563eb")
         rec = _REC.get(result_raw, "Consult a qualified clinician")
         summary = _SUM.get(result_raw, "Please consult a qualified ophthalmologist.")
+
+        # Keep urgent cards readable if rendered in a solid red treatment.
+        is_critical_grade = result_raw in ("Severe DR", "Proliferative DR")
+        if is_critical_grade:
+            gbg = "#b91c1c"
+            gc = "#ffffff"
+            gb = "#991b1b"
+            badge_bg = "#7f1d1d"
+            confidence_color = "#ffffff"
+            divider_color = "#fecaca"
+            reco_label_opacity = "1"
+        else:
+            badge_bg = gb
+            confidence_color = "#374151"
+            divider_color = gb
+            reco_label_opacity = "0.8"
 
         report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
         screened_by_raw = str(self.username or os.environ.get("EYESHIELD_CURRENT_USER","")).strip()
@@ -718,14 +734,14 @@ class ReportsPage(QWidget):
         def img_cell(caption, placeholder_text, image_uri: str):
             if image_uri:
                 body = (
-                    f'<tr><td height="180" bgcolor="#f9fafb" align="center" valign="middle" '
-                    f'style="padding:8px;">'
-                    f'<img src="{image_uri}" style="max-width:100%;max-height:170px;" />'
+                    f'<tr><td bgcolor="#f9fafb" align="center" valign="middle" '
+                    f'style="padding:10px;">'
+                    f'<img src="{image_uri}" style="max-width:92%;max-height:145px;height:auto;display:block;margin:0 auto;" />'
                     f'</td></tr>'
                 )
             else:
                 body = (
-                    f'<tr><td height="180" bgcolor="#f9fafb" align="center" valign="middle" '
+                    f'<tr><td bgcolor="#f9fafb" align="center" valign="middle" '
                     f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:16px;">'
                     f'{placeholder_text}</td></tr>'
                 )
@@ -770,7 +786,9 @@ class ReportsPage(QWidget):
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#111827;
-     background:#ffffff;margin:0;padding:0;line-height:1.5;}}
+        background:#ffffff;margin:0;padding:0;line-height:1.5;}}
+    td, div, span{{overflow-wrap:anywhere;word-break:break-word;white-space:normal;}}
+img{{max-width:100%;height:auto;}}
 </style></head><body>
 
 <!-- HEADER -->
@@ -818,17 +836,17 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
            style="border:1px solid {gb};border-left:4px solid {gb};
                   border-radius:8px;background:{gbg};">
     <tr><td style="padding:16px 18px;">
-        <div style="display:inline-block;background:{gb};color:#ffffff;font-size:7.5pt;
+        <div style="display:inline-block;background:{badge_bg};color:#ffffff;font-size:7.5pt;
                     font-weight:bold;letter-spacing:1px;text-transform:uppercase;
                     padding:3px 9px;border-radius:4px;margin-bottom:12px;">AI Classification</div>
-        <div style="font-size:17pt;font-weight:800;color:{gc};line-height:1.15;margin-bottom:4px;">
+        <div style="font-size:14pt;font-weight:800;color:{gc};line-height:1.35;margin-bottom:4px;">
             {escape(result_raw) if result_raw else "&#8212;"}
         </div>
-        <div style="font-size:9pt;color:#6b7280;margin-bottom:12px;">Confidence: {conf_display}</div>
-        <div style="border-top:1px solid {gb};opacity:0.25;margin-bottom:12px;"></div>
+        <div style="font-size:9pt;color:{confidence_color};margin-bottom:12px;line-height:1.45;">Confidence: {conf_display}</div>
+        <div style="border-top:1px solid {divider_color};opacity:0.35;margin-bottom:12px;"></div>
         <div style="font-size:7.5pt;font-weight:bold;color:{gc};letter-spacing:1px;
-                    text-transform:uppercase;margin-bottom:4px;opacity:0.8;">Recommendation</div>
-        <div style="font-size:9.5pt;font-weight:700;color:{gc};">&#8594;&nbsp;{rec}</div>
+                    text-transform:uppercase;margin-bottom:4px;opacity:{reco_label_opacity};">Recommendation</div>
+        <div style="font-size:9.5pt;font-weight:700;color:{gc};line-height:1.45;">&#8594;&nbsp;{rec}</div>
     </td></tr>
     </table>
 </td>
@@ -861,14 +879,12 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
 
 {sec("Image Results")}
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr>
-<td width="50%" valign="top" style="padding-right:12px;">
+<tr><td valign="top" style="padding:0 0 10px 0;">
     {img_cell("Source Fundus Image", "Source image not stored in this record", source_image_uri)}
-</td>
-<td width="50%" valign="top" style="padding-left:12px;">
+</td></tr>
+<tr><td valign="top" style="padding:0;">
     {img_cell("Grad-CAM++ Heatmap", "Heatmap not stored in this record", heatmap_image_uri)}
-</td>
-</tr>
+</td></tr>
 </table>
 
 {sec("Clinical Analysis")}
@@ -916,7 +932,7 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
         except Exception:
             pass
         try:
-            writer.setPageMargins(QMarginsF(2, 2, 2, 2), QPageLayout.Unit.Millimeter)
+            writer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout.Unit.Millimeter)
         except Exception:
             pass
 

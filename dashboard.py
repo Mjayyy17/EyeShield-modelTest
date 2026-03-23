@@ -1233,7 +1233,7 @@ class EyeShieldApp(QMainWindow):
 
         style_kpi("kpiAbnormal", "#f59e0b",
                   self.abnormal_cases_value, self.abnormal_cases_sub,
-                  str(abnormal_count), f"{_pct(abnormal_count)} need follow-up")
+                  str(abnormal_count), f"{_pct(abnormal_count)} need review")
 
         style_kpi("kpiHighRisk", "#dc3545",
                   self.high_risk_cases_value, self.high_risk_cases_sub,
@@ -1304,9 +1304,9 @@ class EyeShieldApp(QMainWindow):
             summary_text = "Start a screening to generate triage insights and risk distribution."
         elif high_risk_count > 0:
             priority_text = f"Immediate review needed: {high_risk_count} high-risk case(s)"
-            summary_text = f"{abnormal_count} abnormal case(s) require follow-up across {total} active screenings."
+            summary_text = f"{abnormal_count} abnormal case(s) require review across {total} active screenings."
         elif abnormal_count > 0:
-            priority_text = f"Follow-up queue active: {abnormal_count} abnormal case(s)"
+            priority_text = f"Review queue active: {abnormal_count} abnormal case(s)"
             summary_text = "No severe/proliferative alerts right now, but moderate findings need attention."
         else:
             priority_text = "All current records are low risk"

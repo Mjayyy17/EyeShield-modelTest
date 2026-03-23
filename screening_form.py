@@ -37,8 +37,6 @@ from screening_results import ResultsWindow
 from logic_improvements import (
     ScreeningFlowGuard,
     DuplicateDetector,
-    DuplicateDialog,
-    FollowUpScheduler,
 )
 from auth import DB_FILE
 
@@ -221,7 +219,6 @@ class ScreeningPage(QWidget):
 
     def __init__(self):
         super().__init__()
-        FollowUpScheduler.migrate_db()
         self.current_image = None
         self.patient_counter = 0
         self.min_dob_date = QDate(1900, 1, 1)
@@ -232,7 +229,6 @@ class ScreeningPage(QWidget):
         self._first_eye_result = None
         self._flow_guard = ScreeningFlowGuard(self)
         self._duplicate_detector = DuplicateDetector()
-        self._followup_scheduler = FollowUpScheduler()
         self.stacked_widget = QStackedWidget()
         self.init_ui()
 
@@ -1336,12 +1332,16 @@ class ScreeningPage(QWidget):
             dob=self.p_dob.text().strip(),
             contact=self.p_contact.text().strip(),
         )
-        if not match:
+        if not match or not match.get("patient_id"):
             return
 
-        dialog = DuplicateDialog(match, parent=self)
-        if dialog.exec() == DuplicateDialog.USE_EXISTING and match.get("patient_id"):
-            self.p_id.setText(str(match["patient_id"]))
+        matched_id = str(match["patient_id"]).strip()
+        if not matched_id:
+            return
+
+        current_id = self.p_id.text().strip()
+        if current_id != matched_id:
+            self.p_id.setText(matched_id)
 
     def _on_prediction_ready(self, label: str, conf: str, eye_label: str, patient_data: dict | None = None):
         self.last_result_class = label
@@ -1538,6 +1538,8 @@ class ScreeningPage(QWidget):
             QMessageBox.warning(self, "Save Failed", f"Unable to store screening images:\n\n{exc}")
             return
 
+        screened_at = datetime.now().strftime("%Y-%m-%d")
+
         patient_data = [
             pid,
             name,
@@ -1553,6 +1555,7 @@ class ScreeningPage(QWidget):
             notes,
             result,
             confidence,
+            screened_at,
             # New fields (11 columns)
             va_left,
             va_right,
@@ -1574,13 +1577,6 @@ class ScreeningPage(QWidget):
         if not self._save_screening_to_db(patient_data):
             QMessageBox.warning(self, "Save Failed", "Unable to save screening record. Please try again.")
             return
-
-        followup_date, followup_label = self._followup_scheduler.schedule(
-            patient_id=pid,
-            dr_grade=result,
-            screened_at=datetime.now().strftime("%Y-%m-%d"),
-        )
-        self.results_page.set_followup(followup_date, followup_label)
 
         self._current_eye_saved = True
         if reset_after:
@@ -1719,7 +1715,7 @@ class ScreeningPage(QWidget):
                 INSERT INTO patient_records (
                     patient_id, name, birthdate, age, sex, contact, eyes,
                     diabetes_type, duration, hba1c, prev_treatment, notes,
-                    result, confidence,
+                    result, confidence, screened_at,
                     visual_acuity_left, visual_acuity_right,
                     blood_pressure_systolic, blood_pressure_diastolic,
                     fasting_blood_sugar, random_blood_sugar,
@@ -1728,7 +1724,7 @@ class ScreeningPage(QWidget):
                     symptom_flashes, symptom_vision_loss,
                     source_image_path, heatmap_image_path,
                     image_sha256, image_saved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 patient_data,
             )

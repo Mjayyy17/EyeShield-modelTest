@@ -157,11 +157,11 @@ class ResultsWindow(QWidget):
         _scroll.setWidget(_container)
 
         layout = QVBoxLayout(_container)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(14)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
 
         self.title_label = QLabel("Results")
-        self.title_label.setFont(QFont("Calibri", 16, QFont.Weight.Bold))
+        self.title_label.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
         self.title_label.setObjectName("pageHeader")
         layout.addWidget(self.title_label)
 
@@ -189,10 +189,10 @@ class ResultsWindow(QWidget):
         layout.addWidget(self._loading_bar)
 
         main_row = QHBoxLayout()
-        main_row.setSpacing(14)
+        main_row.setSpacing(16)
 
         review_column = QVBoxLayout()
-        review_column.setSpacing(12)
+        review_column.setSpacing(14)
 
         preview_row = QHBoxLayout()
         preview_row.setSpacing(12)
@@ -200,11 +200,11 @@ class ResultsWindow(QWidget):
         source_group = QGroupBox("Source Image")
         source_group.setObjectName("resultGroupCard")
         source_layout = QVBoxLayout(source_group)
-        source_layout.setContentsMargins(14, 16, 14, 14)
+        source_layout.setContentsMargins(14, 14, 14, 14)
         source_layout.setSpacing(10)
         self.source_label = ClickableImageLabel("", "Source Image")
         self.source_label.setObjectName("surfaceLabel")
-        self.source_label.setMinimumSize(440, 340)
+        self.source_label.setMinimumSize(420, 320)
         self.source_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.source_label.setWordWrap(True)
         source_layout.addWidget(self.source_label)
@@ -212,11 +212,11 @@ class ResultsWindow(QWidget):
         heatmap_group = QGroupBox("Heatmap Output")
         heatmap_group.setObjectName("resultGroupCard")
         heatmap_layout = QVBoxLayout(heatmap_group)
-        heatmap_layout.setContentsMargins(14, 16, 14, 14)
+        heatmap_layout.setContentsMargins(14, 14, 14, 14)
         heatmap_layout.setSpacing(10)
         self.heatmap_label = ClickableImageLabel("", "Heatmap Output")
         self.heatmap_label.setObjectName("heatmapPlaceholder")
-        self.heatmap_label.setMinimumSize(440, 340)
+        self.heatmap_label.setMinimumSize(420, 320)
         self.heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.heatmap_label.setWordWrap(True)
         heatmap_layout.addWidget(self.heatmap_label)
@@ -230,11 +230,13 @@ class ResultsWindow(QWidget):
         classification_card, self.classification_value = self._create_stat_card("Classification")
         confidence_card, self.confidence_value = self._create_stat_card("Confidence")
         recommendation_card, self.recommendation_value = self._create_stat_card("Recommendation")
-        followup_card, self.followup_value = self._create_stat_card("Follow-up")
-        stats_row.addWidget(classification_card)
-        stats_row.addWidget(confidence_card)
-        stats_row.addWidget(recommendation_card)
-        stats_row.addWidget(followup_card)
+        self.confidence_value.setStyleSheet("color:#334155;font-size:15px;font-weight:700;")
+        self.recommendation_value.setStyleSheet(
+            "color:#334155;font-size:13px;font-weight:600;line-height:1.4;"
+        )
+        stats_row.addWidget(classification_card, 1)
+        stats_row.addWidget(confidence_card, 1)
+        stats_row.addWidget(recommendation_card, 2)
         review_column.addLayout(stats_row)
 
         # Bilateral comparison card (hidden until second eye is being reviewed)
@@ -255,14 +257,15 @@ class ResultsWindow(QWidget):
         self.bilateral_first_result_lbl = QLabel("—")
         self.bilateral_first_result_lbl.setObjectName("resultStatValue")
         self.bilateral_first_saved_lbl = QLabel("✓ Saved")
-        self.bilateral_first_saved_lbl.setStyleSheet("font-weight:700;font-size:12px;")
+        self.bilateral_first_saved_lbl.setStyleSheet("font-weight:700;font-size:13px;")
         self.bilateral_first_saved_lbl.setObjectName("successLabel")
         first_col.addWidget(self.bilateral_first_eye_lbl)
         first_col.addWidget(self.bilateral_first_result_lbl)
         first_col.addWidget(self.bilateral_first_saved_lbl)
         brow_div = QFrame()
         brow_div.setFrameShape(QFrame.Shape.VLine)
-        brow_div.setFrameShadow(QFrame.Shadow.Sunken)
+        brow_div.setFrameShadow(QFrame.Shadow.Plain)
+        brow_div.setStyleSheet("color:#d9e5f2;")
         second_col = QVBoxLayout()
         second_col.setSpacing(4)
         self.bilateral_second_eye_lbl = QLabel("—")
@@ -270,7 +273,7 @@ class ResultsWindow(QWidget):
         self.bilateral_second_result_lbl = QLabel("—")
         self.bilateral_second_result_lbl.setObjectName("resultStatValue")
         self.bilateral_second_saved_lbl = QLabel("Unsaved")
-        self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:12px;")
+        self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:13px;")
         self.bilateral_second_saved_lbl.setObjectName("errorLabel")
         second_col.addWidget(self.bilateral_second_eye_lbl)
         second_col.addWidget(self.bilateral_second_result_lbl)
@@ -286,9 +289,10 @@ class ResultsWindow(QWidget):
 
         action_rail = QFrame()
         action_rail.setObjectName("actionRail")
+        action_rail.setFixedWidth(280)
         action_layout = QVBoxLayout(action_rail)
         action_layout.setContentsMargins(14, 14, 14, 14)
-        action_layout.setSpacing(10)
+        action_layout.setSpacing(12)
 
         rail_label = QLabel("Actions")
         rail_label.setObjectName("resultStatTitle")
@@ -303,13 +307,13 @@ class ResultsWindow(QWidget):
         self.btn_save.setObjectName("primaryAction")
         self.btn_save.setAutoDefault(True)
         self.btn_save.setDefault(True)
-        self.btn_save.setMinimumHeight(42)
+        self.btn_save.setMinimumHeight(44)
         self.btn_save.setIconSize(QSize(18, 18))
         self.btn_save.clicked.connect(self.save_patient)
         action_layout.addWidget(self.btn_save)
 
         self.btn_report = QPushButton("Generate Report")
-        self.btn_report.setMinimumHeight(42)
+        self.btn_report.setMinimumHeight(44)
         self.btn_report.setIconSize(QSize(18, 18))
         self.btn_report.setEnabled(False)
         self.btn_report.clicked.connect(self.generate_report)
@@ -317,20 +321,20 @@ class ResultsWindow(QWidget):
 
         self.btn_screen_another = QPushButton("Screen Other Eye")
         self.btn_screen_another.setObjectName("secondaryAction")
-        self.btn_screen_another.setMinimumHeight(42)
+        self.btn_screen_another.setMinimumHeight(44)
         self.btn_screen_another.setIconSize(QSize(18, 18))
         self.btn_screen_another.clicked.connect(self._on_screen_another)
         action_layout.addWidget(self.btn_screen_another)
 
         self.btn_new = QPushButton("New Patient")
-        self.btn_new.setMinimumHeight(42)
+        self.btn_new.setMinimumHeight(44)
         self.btn_new.setIconSize(QSize(18, 18))
         self.btn_new.clicked.connect(self.new_patient)
         action_layout.addWidget(self.btn_new)
 
         self.btn_back = QPushButton("Back to Screening")
         self.btn_back.setObjectName("dangerAction")
-        self.btn_back.setMinimumHeight(42)
+        self.btn_back.setMinimumHeight(44)
         self.btn_back.setIconSize(QSize(18, 18))
         self.btn_back.clicked.connect(self.go_back)
         action_layout.addWidget(self.btn_back)
@@ -344,11 +348,15 @@ class ResultsWindow(QWidget):
         explanation_group = QGroupBox("Clinical Summary")
         explanation_group.setObjectName("resultGroupCard")
         explanation_layout = QVBoxLayout(explanation_group)
-        explanation_layout.setContentsMargins(14, 16, 14, 14)
-        explanation_layout.setSpacing(10)
+        explanation_layout.setContentsMargins(16, 18, 16, 16)
+        explanation_layout.setSpacing(12)
+        self.explanation_lead = QLabel("Interpretation and recommended next clinical action")
+        self.explanation_lead.setObjectName("summaryLead")
+        self.explanation_lead.setWordWrap(True)
+        explanation_layout.addWidget(self.explanation_lead)
         self.explanation = QLabel("AI explanation will appear here once available.")
         self.explanation.setWordWrap(True)
-        self.explanation.setStyleSheet("font-size: 11pt; line-height: 1.45;")
+        self.explanation.setObjectName("summaryBody")
         explanation_layout.addWidget(self.explanation)
         self.explanation_hint = QLabel("AI-generated summary based on the DR grade. Always verify results with a qualified clinician before acting on this output.")
         self.explanation_hint.setObjectName("statusLabel")
@@ -358,23 +366,25 @@ class ResultsWindow(QWidget):
 
         self.setStyleSheet("""
             QWidget {
-                background: #ffffff;
+                background: #f3f7fb;
                 color: #1f2937;
-                font-family: 'Segoe UI', 'Calibri', 'Inter', sans-serif;
+                font-family: "Segoe UI", "Inter", "Calibri", sans-serif;
+                font-size: 13px;
             }
             QLabel#pageHeader {
-                font-size: 24px;
+                font-size: 28px;
                 font-weight: 700;
                 color: #0f3d66;
+                letter-spacing: 0.2px;
             }
             QLabel#pageSubtitle {
-                color: #6b7280;
-                font-size: 12px;
+                color: #4b5b6c;
+                font-size: 14px;
             }
             QGroupBox#resultGroupCard {
                 background: #ffffff;
-                border: 1px solid #dbe3ec;
-                border-radius: 10px;
+                border: 1px solid #d6e2ee;
+                border-radius: 12px;
                 margin-top: 10px;
                 font-weight: 700;
                 color: #334155;
@@ -383,32 +393,56 @@ class ResultsWindow(QWidget):
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 6px;
-                color: #3f4f63;
+                color: #2f4e70;
                 background: #ffffff;
+                font-size: 14px;
+            }
+            QLabel#surfaceLabel, QLabel#heatmapPlaceholder {
+                background: #fbfdff;
+                border: 1px solid #d9e5f2;
+                border-radius: 8px;
+                color: #4b5b6c;
+                font-size: 13px;
             }
             QFrame#resultStatCard {
                 background: #ffffff;
-                border: 1px solid #dbe3ec;
-                border-radius: 10px;
+                border: 1px solid #d6e2ee;
+                border-radius: 12px;
             }
             QLabel#resultStatTitle {
-                color: #6b7280;
-                font-size: 11px;
+                color: #5a6f84;
+                font-size: 12px;
                 font-weight: 700;
+                letter-spacing: 0.4px;
             }
             QLabel#resultStatValue {
                 color: #111827;
-                font-size: 18px;
+                font-size: 19px;
                 font-weight: 700;
+            }
+            QLabel#summaryLead {
+                color: #2f4e70;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLabel#summaryBody {
+                background: #f7fbff;
+                border: 1px solid #d8e7f7;
+                border-radius: 10px;
+                color: #1e293b;
+                font-size: 14px;
+                font-weight: 500;
+                line-height: 1.55;
+                padding: 12px 14px;
             }
             QFrame#actionRail {
                 background: #ffffff;
-                border: 1px solid #dbe3ec;
-                border-radius: 10px;
+                border: 1px solid #d6e2ee;
+                border-radius: 12px;
             }
             QLabel#statusLabel {
                 color: #6b7280;
-                font-size: 11px;
+                font-size: 13px;
             }
             QLabel#successLabel {
                 color: #166534;
@@ -417,15 +451,15 @@ class ResultsWindow(QWidget):
                 color: #b91c1c;
             }
             QPushButton {
-                background: #eaf2ff;
+                background: #eaf3ff;
                 color: #005ecb;
-                border: 1px solid #bdd7ff;
+                border: 1px solid #b4d0ff;
                 border-radius: 8px;
-                padding: 8px 12px;
+                padding: 10px 12px;
                 font-weight: 700;
             }
             QPushButton:hover {
-                background: #dce9ff;
+                background: #d7e8ff;
             }
             QPushButton:disabled {
                 background: #eef2f7;
@@ -457,6 +491,9 @@ class ResultsWindow(QWidget):
                 background: #ffe4e6;
             }
         """)
+
+        main_row.setStretch(0, 3)
+        main_row.setStretch(1, 1)
 
     def _is_dark_theme(self) -> bool:
         bg = self.palette().color(QPalette.ColorRole.Window)
@@ -553,7 +590,7 @@ class ResultsWindow(QWidget):
             self.bilateral_second_eye_lbl.setText(eye_label or "Current Eye")
             self.bilateral_second_result_lbl.setText(result_class)
             self.bilateral_second_saved_lbl.setText("Unsaved")
-            self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:12px;")
+            self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:13px;")
             self.bilateral_second_saved_lbl.setObjectName("errorLabel")
             self.bilateral_frame.show()
         else:
@@ -567,14 +604,16 @@ class ResultsWindow(QWidget):
         )
 
         self.confidence_value.setText(confidence_text)
+        self.confidence_value.setStyleSheet("color:#334155;font-size:17px;font-weight:700;")
 
         # Grade-specific recommendation
         recommendation = DR_RECOMMENDATIONS.get(result_class, "Consult a clinician")
         if is_loading:
             recommendation = "—"
         self.recommendation_value.setText(recommendation)
-        if is_loading:
-            self.followup_value.setText("Pending")
+        self.recommendation_value.setStyleSheet(
+            "color:#334155;font-size:14px;font-weight:600;line-height:1.45;"
+        )
 
         # Subtitle
         if is_loading:
@@ -633,7 +672,7 @@ class ResultsWindow(QWidget):
         """Called by ScreeningPage after a successful save to update this panel."""
         self.save_status_label.setText(f"✓  Saved — {name} ({eye_label}): {result_class}")
         self.save_status_label.setStyleSheet(
-            "font-weight:700;font-size:12px;"
+            "font-weight:700;font-size:13px;"
             "border-radius:6px;padding:6px 8px;"
         )
         self.save_status_label.setObjectName("successLabel")
@@ -642,21 +681,8 @@ class ResultsWindow(QWidget):
         self.btn_save.setEnabled(False)
         if self.bilateral_frame.isVisible():
             self.bilateral_second_saved_lbl.setText("✓ Saved")
-            self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:12px;")
+            self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:13px;")
             self.bilateral_second_saved_lbl.setObjectName("successLabel")
-
-    def set_followup(self, followup_date: str, followup_label: str):
-        """Show follow-up details generated after save."""
-        try:
-            dt = datetime.strptime(followup_date, "%Y-%m-%d")
-            formatted = dt.strftime("%b %d, %Y")
-        except ValueError:
-            formatted = followup_date
-
-        text = formatted
-        if followup_label:
-            text = f"{formatted} ({followup_label})"
-        self.followup_value.setText(text)
 
     def go_back(self):
         if not self.parent_page:
@@ -803,7 +829,7 @@ class ResultsWindow(QWidget):
                 ),
                 "Mild DR": (
                     "Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. "
-                    "A follow-up retinal examination in 6 to 12 months is recommended."
+                    "A repeat retinal examination in 6 to 12 months is recommended."
                 ),
                 "Moderate DR": (
                     "Features consistent with moderate NPDR were detected. "
@@ -849,56 +875,56 @@ class ResultsWindow(QWidget):
 
         if self._current_image_path and os.path.isfile(self._current_image_path):
             src_px = QPixmap(self._current_image_path).scaled(
-                320, 260, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                260, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             try:
                 doc.addResource(QTextDocument.ResourceType.ImageResource, QUrl("src_img"), src_px)
             except AttributeError:
                 doc.addResource(QTextDocument.ImageResource, QUrl("src_img"), src_px)
-            source_img_html = '<img src="src_img" style="max-width:320px; max-height:260px;" />'
+            source_img_html = '<img src="src_img" style="max-width:92%; max-height:145px; height:auto; display:block; margin:0 auto;" />'
 
         if self._current_heatmap_path and os.path.isfile(self._current_heatmap_path):
             hmap_px = QPixmap(self._current_heatmap_path).scaled(
-                320, 260, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                260, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             try:
                 doc.addResource(QTextDocument.ResourceType.ImageResource, QUrl("hmap_img"), hmap_px)
             except AttributeError:
                 doc.addResource(QTextDocument.ImageResource, QUrl("hmap_img"), hmap_px)
-            heatmap_img_html = '<img src="hmap_img" style="max-width:320px; max-height:260px;" />'
+            heatmap_img_html = '<img src="hmap_img" style="max-width:92%; max-height:145px; height:auto; display:block; margin:0 auto;" />'
 
         # Report-tab-matching palette and structure
         _COL = {
             "No DR": "#166534",
             "Mild DR": "#92400e",
             "Moderate DR": "#9a3412",
-            "Severe DR": "#991b1b",
-            "Proliferative DR": "#7f1d1d",
+            "Severe DR": "#7f1d1d",
+            "Proliferative DR": "#6b1a1a",
         }
         _BG = {
             "No DR": "#f0fdf4",
             "Mild DR": "#fefce8",
             "Moderate DR": "#fff7ed",
-            "Severe DR": "#fff1f2",
-            "Proliferative DR": "#fff1f2",
+            "Severe DR": "#fff8f8",
+            "Proliferative DR": "#fff8f8",
         }
         _BORDER = {
             "No DR": "#16a34a",
             "Mild DR": "#d97706",
             "Moderate DR": "#ea580c",
-            "Severe DR": "#dc2626",
-            "Proliferative DR": "#dc2626",
+            "Severe DR": "#c24141",
+            "Proliferative DR": "#b91c1c",
         }
         _REC = {
             "No DR": "Annual screening recommended",
-            "Mild DR": "6&#8211;12 month follow-up",
+            "Mild DR": "Repeat screening in 6&#8211;12 months",
             "Moderate DR": "Ophthalmology referral within 3 months",
             "Severe DR": "Urgent ophthalmology referral",
             "Proliferative DR": "Immediate ophthalmology referral",
         }
         _SUM = {
             "No DR": "No signs of diabetic retinopathy were detected in this fundus image. Continue standard diabetes management, maintain optimal glycaemic and blood pressure control, and schedule routine annual retinal screening.",
-            "Mild DR": "Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. Intensify glycaemic and blood pressure management. A follow-up retinal examination in 6&#8211;12 months is recommended.",
+            "Mild DR": "Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. Intensify glycaemic and blood pressure management. A repeat retinal examination in 6&#8211;12 months is recommended.",
             "Moderate DR": "Features consistent with moderate non-proliferative diabetic retinopathy (NPDR) were detected, including microaneurysms, haemorrhages, and/or hard exudates. Referral to an ophthalmologist within 3 months is advised. Reassess systemic metabolic control.",
             "Severe DR": "Findings consistent with severe non-proliferative diabetic retinopathy (NPDR) were detected. The risk of progression to proliferative disease within 12 months is high. Urgent ophthalmology referral is required.",
             "Proliferative DR": "Proliferative diabetic retinopathy (PDR) was detected &#8212; a sight-threatening condition. Immediate ophthalmology referral is required for evaluation and potential intervention, such as laser photocoagulation or intravitreal anti-VEGF therapy.",
@@ -909,6 +935,21 @@ class ResultsWindow(QWidget):
         rec = _REC.get(result_raw, "Consult a qualified clinician")
         summary = _SUM.get(result_raw, "Please consult a qualified ophthalmologist.")
         conf_display = confidence_display
+
+        is_critical_grade = result_raw in ("Severe DR", "Proliferative DR")
+        if is_critical_grade:
+            gbg = "#b91c1c"
+            gc = "#ffffff"
+            gb = "#991b1b"
+            badge_bg = "#7f1d1d"
+            confidence_color = "#ffffff"
+            divider_color = "#fecaca"
+            reco_label_opacity = "1"
+        else:
+            badge_bg = gb
+            confidence_color = "#374151"
+            divider_color = gb
+            reco_label_opacity = "0.8"
 
         def sec(title):
             return (
@@ -927,7 +968,7 @@ class ResultsWindow(QWidget):
             return (
                 f'<table width="100%" cellpadding="0" cellspacing="0" '
                 f'style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">'
-                f'<tr><td height="180" bgcolor="#f9fafb" align="center" valign="middle" '
+                f'<tr><td bgcolor="#f9fafb" align="center" valign="middle" '
                 f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:16px;">'
                 f'{body}</td></tr>'
                 f'<tr><td bgcolor="#f3f4f6" style="border-top:1px solid #e5e7eb;padding:6px 12px;'
@@ -959,6 +1000,8 @@ class ResultsWindow(QWidget):
 <html><head><meta charset="utf-8"><style>
 body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#111827;
      background:#ffffff;margin:0;padding:0;line-height:1.5;}}
+td, div, span{{overflow-wrap:anywhere;word-break:break-word;white-space:normal;}}
+img{{max-width:100%;height:auto;}}
 </style></head><body>
 
 <table width="100%" cellpadding="0" cellspacing="0">
@@ -1003,17 +1046,17 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
            style="border:1px solid {gb};border-left:4px solid {gb};
                   border-radius:8px;background:{gbg};">
     <tr><td style="padding:16px 18px;">
-        <div style="display:inline-block;background:{gb};color:#ffffff;font-size:7.5pt;
+        <div style="display:inline-block;background:{badge_bg};color:#ffffff;font-size:7.5pt;
                     font-weight:bold;letter-spacing:1px;text-transform:uppercase;
                     padding:3px 9px;border-radius:4px;margin-bottom:12px;">AI Classification</div>
-        <div style="font-size:17pt;font-weight:800;color:{gc};line-height:1.15;margin-bottom:4px;">
+        <div style="font-size:14pt;font-weight:800;color:{gc};line-height:1.35;margin-bottom:4px;">
             {escape(result_raw) if result_raw else "&#8212;"}
         </div>
-        <div style="font-size:9pt;color:#6b7280;margin-bottom:12px;">Confidence: {conf_display}</div>
-        <div style="border-top:1px solid {gb};opacity:0.25;margin-bottom:12px;"></div>
+        <div style="font-size:9pt;color:{confidence_color};margin-bottom:12px;line-height:1.45;">Confidence: {conf_display}</div>
+        <div style="border-top:1px solid {divider_color};opacity:0.35;margin-bottom:12px;"></div>
         <div style="font-size:7.5pt;font-weight:bold;color:{gc};letter-spacing:1px;
-                    text-transform:uppercase;margin-bottom:4px;opacity:0.8;">Recommendation</div>
-        <div style="font-size:9.5pt;font-weight:700;color:{gc};">&#8594;&nbsp;{rec}</div>
+                    text-transform:uppercase;margin-bottom:4px;opacity:{reco_label_opacity};">Recommendation</div>
+        <div style="font-size:9.5pt;font-weight:700;color:{gc};line-height:1.45;">&#8594;&nbsp;{rec}</div>
     </td></tr>
     </table>
 </td>
@@ -1045,14 +1088,12 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
 
 {sec("Image Results")}
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr>
-<td width="50%" valign="top" style="padding-right:12px;">
+<tr><td valign="top" style="padding:0 0 10px 0;">
     {img_cell("Source Fundus Image", "Source image not stored in this record", source_img_html)}
-</td>
-<td width="50%" valign="top" style="padding-left:12px;">
+</td></tr>
+<tr><td valign="top" style="padding:0;">
     {img_cell("Grad-CAM++ Heatmap", "Heatmap not stored in this record", heatmap_img_html)}
-</td>
-</tr>
+</td></tr>
 </table>
 
 {sec("Clinical Analysis")}
@@ -1098,7 +1139,7 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
         except Exception:
             pass
         try:
-            writer.setPageMargins(QMarginsF(2, 2, 2, 2), QPageLayout.Unit.Millimeter)
+            writer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout.Unit.Millimeter)
         except Exception:
             pass
         doc.print_(writer)

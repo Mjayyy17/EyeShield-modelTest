@@ -259,7 +259,11 @@ class ClickableImageLabel(QLabel):
         self.open_badge.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon).pixmap(16, 16))
         self.open_badge.setFixedSize(28, 28)
         self.open_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.open_badge.setStyleSheet("background: rgba(13, 110, 253, 0.92); border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.65);")
+        self.open_badge.setStyleSheet(
+            "background: rgba(255, 255, 255, 0.92);"
+            "border-radius: 14px;"
+            "border: 1px solid #b8c9dd;"
+        )
         self.open_badge.hide()
 
     def set_viewable_pixmap(self, pixmap, max_width, max_height):

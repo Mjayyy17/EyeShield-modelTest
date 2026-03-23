@@ -123,8 +123,6 @@ class UserManager:
         "archived_by": "TEXT",
         "archive_reason": "TEXT",
         "screened_at": "TEXT",
-        "followup_date": "TEXT",
-        "followup_label": "TEXT",
         "source_image_path": "TEXT",
         "heatmap_image_path": "TEXT",
         "image_sha256": "TEXT",

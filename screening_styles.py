@@ -14,7 +14,7 @@ DR_COLORS = {
 
 DR_RECOMMENDATIONS = {
     "No DR":            "Annual screening recommended",
-    "Mild DR":          "6–12 month follow-up",
+    "Mild DR":          "Repeat screening in 6–12 months",
     "Moderate DR":      "Ophthalmology referral within 3 months",
     "Severe DR":        "Urgent ophthalmology referral",
     "Proliferative DR": "Immediate ophthalmology referral",
@@ -29,7 +29,7 @@ DR_SUMMARIES = {
     "Mild DR": (
         "Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. "
         "Intensify glycemic and blood pressure management. "
-        "A follow-up retinal examination in 6–12 months is recommended."
+        "A repeat retinal examination in 6–12 months is recommended."
     ),
     "Moderate DR": (
         "Features consistent with moderate non-proliferative diabetic retinopathy (NPDR) were detected, "
