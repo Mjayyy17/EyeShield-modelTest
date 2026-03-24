@@ -5,6 +5,7 @@ Extracted from screening.py for better modularity.
 
 from datetime import datetime
 from html import escape
+import json
 import hashlib
 import os
 import re
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QFrame, QSizePolicy, QScrollArea, QSplitter
 )
 from PySide6.QtGui import QPixmap, QFont, QRegularExpressionValidator, QIcon, QPainter, QColor, QDragEnterEvent, QDropEvent
-from PySide6.QtCore import Qt, QDate, QRegularExpression, QSize, Signal
+from PySide6.QtCore import Qt, QDate, QRegularExpression, QSize, Signal, QTimer
 
 from screening_styles import (
     SCREENING_PAGE_STYLE,
@@ -39,6 +40,7 @@ from logic_improvements import (
     DuplicateDetector,
 )
 from auth import DB_FILE
+from safety_runtime import get_autosave_draft_path, safe_remove_file, write_activity
 
 
 class SymptomTag(QPushButton):
@@ -225,12 +227,21 @@ class ScreeningPage(QWidget):
         self.max_dob_date = QDate.currentDate()
         self.last_result_class = "Pending"
         self.last_result_conf = "Pending"
+        self._custom_storage_root = ""
+        self._last_saved_signature = ""
+        self._last_saved_at = ""
+        self._last_saved_source_path = ""
         self._current_eye_saved = False
         self._first_eye_result = None
         self._flow_guard = ScreeningFlowGuard(self)
         self._duplicate_detector = DuplicateDetector()
+        self._draft_path = get_autosave_draft_path()
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(120_000)
+        self._autosave_timer.timeout.connect(self._autosave_draft)
         self.stacked_widget = QStackedWidget()
         self.init_ui()
+        self._autosave_timer.start()
 
     def init_ui(self):
         """Initialize the revised UI: patient info and image upload in one window, results in new window"""
@@ -332,7 +343,9 @@ class ScreeningPage(QWidget):
             layout.setSpacing(14)
             return frame, layout
 
-        def section_title(layout, text):
+        self._scr_unified_labels = {}
+
+        def section_title(layout, text, key=None):
             row = QHBoxLayout()
             row.setSpacing(8)
             title = QLabel(text.upper())
@@ -340,6 +353,8 @@ class ScreeningPage(QWidget):
                 "font-size:10px;font-weight:700;letter-spacing:1.4px;"
                 "color:#3f7ca7;background:transparent;"
             )
+            if key:
+                self._scr_unified_labels[key] = title
             line = QFrame()
             line.setFrameShape(QFrame.Shape.HLine)
             line.setStyleSheet("background:#dde3ea;max-height:1px;")
@@ -347,15 +362,17 @@ class ScreeningPage(QWidget):
             row.addWidget(line, 1)
             layout.addLayout(row)
 
-        def lbl(text):
+        def lbl(text, key=None):
             w = QLabel(text)
             w.setStyleSheet("font-size:11px;font-weight:500;color:#475569;background:transparent;")
+            if key:
+                self._scr_unified_labels[key] = w
             return w
 
-        def field(label_text, widget):
+        def field(label_text, widget, key=None):
             v = QVBoxLayout()
             v.setSpacing(5)
-            v.addWidget(lbl(label_text))
+            v.addWidget(lbl(label_text, key))
             v.addWidget(widget)
             return v
 
@@ -386,7 +403,7 @@ class ScreeningPage(QWidget):
         left_scroll.setWidget(left_content)
 
         card1, c1 = make_card()
-        section_title(c1, "Patient Information")
+        section_title(c1, "Patient Information", "scr_patient_info")
 
         self.p_id = QLineEdit()
         self.p_id.setReadOnly(True)
@@ -397,7 +414,7 @@ class ScreeningPage(QWidget):
         self.generate_patient_id()
         pid_row = QHBoxLayout()
         pid_row.setSpacing(10)
-        pid_row.addWidget(lbl("Patient ID"))
+        pid_row.addWidget(lbl("Patient ID", "scr_label_pid"))
         pid_row.addWidget(self.p_id, 1)
         c1.addLayout(pid_row)
 
@@ -409,7 +426,7 @@ class ScreeningPage(QWidget):
         self._dob_default_style = ""
         self._dob_invalid_style = "QLineEdit{border:1.5px solid #ef4444;border-radius:6px;}"
         self.p_dob.textChanged.connect(self._on_dob_text_changed)
-        c1.addLayout(row2(field("Full Name", self.p_name), field("Date of Birth", self.p_dob)))
+        c1.addLayout(row2(field("Full Name", self.p_name, "scr_label_name"), field("Date of Birth", self.p_dob, "scr_label_dob")))
 
         self.p_age = QSpinBox()
         self.p_age.setRange(0, 120)
@@ -426,11 +443,11 @@ class ScreeningPage(QWidget):
         self.p_eye.setObjectName("eyeDropdown")
         self.p_eye.addItems(["", "Right Eye", "Left Eye"])
         self._apply_visible_dropdown_style(self.p_eye)
-        c1.addLayout(row3(field("Age", self.p_age), field("Sex", self.p_sex), field("Eye to be Screened", self.p_eye)))
+        c1.addLayout(row3(field("Age", self.p_age, "scr_label_age"), field("Sex", self.p_sex, "scr_label_sex"), field("Eye to be Screened", self.p_eye, "scr_label_eye")))
 
         self.p_contact = QLineEdit()
         self.p_contact.setPlaceholderText("Phone or Email")
-        c1.addLayout(field("Contact", self.p_contact))
+        c1.addLayout(field("Contact", self.p_contact, "scr_label_contact"))
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -507,7 +524,7 @@ class ScreeningPage(QWidget):
         left_col.addWidget(card1)
 
         card2, c2 = make_card()
-        section_title(c2, "Clinical History")
+        section_title(c2, "Clinical History", "scr_clinical_history")
         self.diabetes_type = QComboBox()
         self.diabetes_type.setObjectName("diabetesTypeDropdown")
         self.diabetes_type.addItems(["Select", "Type 1", "Type 2", "Gestational", "Other"])
@@ -516,7 +533,7 @@ class ScreeningPage(QWidget):
         self.diabetes_diagnosis_date.setPlaceholderText("dd/mm/yyyy")
         self.diabetes_diagnosis_date.setMaxLength(10)
         self.diabetes_diagnosis_date.textChanged.connect(self._on_diagnosis_date_changed)
-        c2.addLayout(row2(field("Diabetes Type", self.diabetes_type), field("Diagnosis Date", self.diabetes_diagnosis_date)))
+        c2.addLayout(row2(field("Diabetes Type", self.diabetes_type, "scr_label_diabetes"), field("Diagnosis Date", self.diabetes_diagnosis_date)))
 
         self.diabetes_duration = QSpinBox()
         self.diabetes_duration.setSuffix(" years")
@@ -527,11 +544,16 @@ class ScreeningPage(QWidget):
             "QSpinBox{background:#f6f8fb;color:#475569;border:1.5px solid #d3dae3;border-radius:6px;padding:6px 10px;}"
         )
         self.hba1c = QDoubleSpinBox()
-        self.hba1c.setRange(4.0, 15.0)
+        self.hba1c.setRange(3.0, 20.0)
         self.hba1c.setDecimals(1)
         self.hba1c.setSuffix(" %")
         self.hba1c.setValue(7.0)
-        c2.addLayout(row2(field("Duration", self.diabetes_duration), field("HbA1c (%)", self.hba1c)))
+        self.hba1c.valueChanged.connect(self._on_hba1c_changed)
+        c2.addLayout(row2(field("Duration", self.diabetes_duration, "scr_label_duration"), field("HbA1c (%)", self.hba1c, "scr_label_hba1c")))
+        self.hba1c_warn_label = QLabel("")
+        self.hba1c_warn_label.setStyleSheet("color:#b45309;background:transparent;font-size:12px;font-weight:600;")
+        self.hba1c_warn_label.hide()
+        c2.addWidget(self.hba1c_warn_label)
 
         self.prev_treatment = QCheckBox("Previous DR Treatment")
         c2.addWidget(self.prev_treatment)
@@ -539,7 +561,7 @@ class ScreeningPage(QWidget):
         self.notes.setPlaceholderText("Enter clinical notes…")
         self.notes.setMinimumHeight(72)
         self.notes.setMaximumHeight(90)
-        c2.addLayout(field("Clinical Notes", self.notes))
+        c2.addLayout(field("Clinical Notes", self.notes, "scr_label_notes"))
         left_col.addWidget(card2)
         left_col.addStretch()
         splitter.addWidget(left_scroll)
@@ -550,7 +572,7 @@ class ScreeningPage(QWidget):
         c3 = QVBoxLayout(card3)
         c3.setContentsMargins(24, 20, 24, 22)
         c3.setSpacing(12)
-        section_title(c3, "Fundus Image Upload")
+        section_title(c3, "Fundus Image Upload", "scr_image_upload")
 
         self.image_label = DropZoneLabel()
         self.image_label.file_dropped.connect(self._on_image_dropped)
@@ -592,6 +614,12 @@ class ScreeningPage(QWidget):
         self.btn_analyze.setEnabled(False)
         self.btn_analyze.clicked.connect(self.open_results_window)
         c3.addWidget(self.btn_analyze)
+
+        self.upload_error_label = QLabel("")
+        self.upload_error_label.setStyleSheet("color:#dc2626;background:transparent;font-size:12px;font-weight:600;")
+        self.upload_error_label.setWordWrap(True)
+        self.upload_error_label.hide()
+        c3.addWidget(self.upload_error_label)
 
         splitter.addWidget(card3)
         splitter.setStretchFactor(0, 6)
@@ -697,6 +725,7 @@ class ScreeningPage(QWidget):
         dob_date = self._get_dob_date()
         sex = self.p_sex.currentText().strip()
         contact = self.p_contact.text().strip()
+        age_val = self.p_age.value()
 
         missing_fields = []
         if not name:
@@ -719,7 +748,18 @@ class ScreeningPage(QWidget):
         if not self.name_regex.match(name).hasMatch():
             QMessageBox.warning(self, "Error", "Name can only include letters, spaces, hyphens, and apostrophes")
             return False
+
+        if age_val < 1 or age_val > 120:
+            QMessageBox.warning(self, "Invalid Age", "Age must be between 1 and 120.")
+            return False
         return True
+
+    def _on_hba1c_changed(self, value: float):
+        if value > 9.0:
+            self.hba1c_warn_label.setText("High HbA1c - verify this value before continuing")
+            self.hba1c_warn_label.show()
+        else:
+            self.hba1c_warn_label.hide()
 
     def _on_dob_text_changed(self, text):
         digits = "".join(ch for ch in text if ch.isdigit())[:8]
@@ -1006,7 +1046,7 @@ class ScreeningPage(QWidget):
         clinical_form.addRow("Duration:", self.diabetes_duration)
 
         self.hba1c = QDoubleSpinBox()
-        self.hba1c.setRange(4.0, 15.0)
+        self.hba1c.setRange(3.0, 20.0)
         self.hba1c.setDecimals(1)
         self.hba1c.setSuffix(" %")
         clinical_form.addRow("HbA1c:", self.hba1c)
@@ -1186,9 +1226,23 @@ class ScreeningPage(QWidget):
         self.p_sex.setCurrentIndex(0)
         self.p_eye.setCurrentIndex(0)
         self.diabetes_type.setCurrentIndex(0)
+        if hasattr(self, "diabetes_diagnosis_date"):
+            self.diabetes_diagnosis_date.clear()
         self.diabetes_duration.setValue(0)
         self.hba1c.setValue(7.0)
         self.prev_treatment.setChecked(False)
+        if hasattr(self, "va_left"):
+            self.va_left.clear()
+        if hasattr(self, "va_right"):
+            self.va_right.clear()
+        if hasattr(self, "bp_systolic"):
+            self.bp_systolic.setValue(0)
+        if hasattr(self, "bp_diastolic"):
+            self.bp_diastolic.setValue(0)
+        if hasattr(self, "fbs"):
+            self.fbs.setValue(0)
+        if hasattr(self, "rbs"):
+            self.rbs.setValue(0)
         self.symptom_blurred.setChecked(False)
         self.symptom_floaters.setChecked(False)
         self.symptom_flashes.setChecked(False)
@@ -1199,38 +1253,80 @@ class ScreeningPage(QWidget):
         self._apply_upload_placeholder_style()
         self.last_result_class = "Pending"
         self.last_result_conf = "Pending"
+        self._last_saved_signature = ""
+        self._last_saved_at = ""
+        self._last_saved_source_path = ""
         self._current_eye_saved = False
         self._first_eye_result = None
         self._flow_guard.reset()
         self.btn_analyze.setEnabled(False)
+        self._set_upload_error("")
+        self.discard_draft_session()
         self.stacked_widget.setCurrentIndex(0)
 
     def upload_image(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Fundus Image", "", "Image Files (*.jpg *.jpeg *.png)"
+            self, "Select Fundus Image", "", "Image Files (*.jpg *.jpeg *.png *.tif *.tiff *.bmp)"
         )
         if path:
+            ok, msg = self._validate_image_selection(path)
+            if not ok:
+                self._set_upload_error(msg)
+                return
             self.current_image = path
             if hasattr(self.image_label, "set_image"):
                 self.image_label.set_image(path)
             else:
                 self._set_preview_image(path)
             self.btn_analyze.setEnabled(True)
+            self._set_upload_error("")
 
     def _on_image_dropped(self, path: str):
+        ok, msg = self._validate_image_selection(path)
+        if not ok:
+            self._set_upload_error(msg)
+            return
         self.current_image = path
         if hasattr(self.image_label, "set_image"):
             self.image_label.set_image(path)
         else:
             self._set_preview_image(path)
         self.btn_analyze.setEnabled(True)
+        self._set_upload_error("")
+
+    def _set_upload_error(self, message: str):
+        if not hasattr(self, "upload_error_label"):
+            return
+        text = str(message or "").strip()
+        self.upload_error_label.setText(text)
+        self.upload_error_label.setVisible(bool(text))
+
+    def _validate_image_selection(self, path: str) -> tuple[bool, str]:
+        allowed_ext = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in allowed_ext:
+            return False, "Unsupported format. Use JPG, PNG, TIFF, or BMP."
+        try:
+            size_bytes = os.path.getsize(path)
+        except OSError as err:
+            return False, f"Cannot access selected image: {err}"
+        max_bytes = 50 * 1024 * 1024
+        if size_bytes > max_bytes:
+            return False, "File is too large. Maximum allowed size is 50MB."
+        if not os.path.isfile(path):
+            return False, "Source file no longer found at selected path. Please re-select the image."
+        return True, ""
 
     def screen_another_image(self):
         """Pick a new image from the results page, re-run analysis, update results in place."""
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Fundus Image", "", "Images (*.jpg *.png *.jpeg)"
+            self, "Select Fundus Image", "", "Image Files (*.jpg *.jpeg *.png *.tif *.tiff *.bmp)"
         )
         if not path:
+            return
+        ok, msg = self._validate_image_selection(path)
+        if not ok:
+            QMessageBox.warning(self, "Invalid Image", msg)
             return
         self.current_image = path
         # Update the upload panel too so it stays in sync
@@ -1283,8 +1379,11 @@ class ScreeningPage(QWidget):
 
         ok, message = self._flow_guard.validate()
         if not ok:
+            if "upload a fundus image" in message.lower() or "no image" in message.lower():
+                self._set_upload_error("Please select a fundus image to proceed")
             QMessageBox.warning(self, "Incomplete Form", message)
             return
+        self._set_upload_error("")
 
         self._resolve_duplicate_patient()
 
@@ -1362,6 +1461,11 @@ class ScreeningPage(QWidget):
         self.last_result_conf = conf
         if eye_label:
             self._flow_guard.mark_eye_done(eye_label)
+        write_activity(
+            "INFO",
+            "SCREENING_RUN",
+            f"eye={eye_label}; image={self.current_image}; result={label}; confidence={conf}",
+        )
         self.btn_analyze.setEnabled(True)
         self.results_page.set_results(
             self.p_name.text(),
@@ -1378,6 +1482,7 @@ class ScreeningPage(QWidget):
     def _on_inference_error(self, message: str):
         self.btn_analyze.setEnabled(True)
         self.stacked_widget.setCurrentIndex(0)
+        write_activity("ERROR", "SCREENING_INFERENCE_FAILED", message)
         QMessageBox.critical(
             self, "Analysis Failed",
             f"Could not run the DR model:\n\n{message}"
@@ -1387,6 +1492,7 @@ class ScreeningPage(QWidget):
         """Called when the quality check rejects the uploaded image."""
         self.btn_analyze.setEnabled(True)
         self.stacked_widget.setCurrentIndex(0)
+        write_activity("WARNING", "SCREENING_UNGRADABLE", message)
         msg = QMessageBox(self)
         msg.setWindowTitle("Image Not Gradable")
         msg.setIcon(QMessageBox.Icon.Warning)
@@ -1433,6 +1539,130 @@ class ScreeningPage(QWidget):
             "symptoms":       symptoms,
         }
 
+    def has_unsaved_result(self) -> bool:
+        has_result = self.last_result_class not in ("Pending", "Analyzing…")
+        return has_result and not self._current_eye_saved
+
+    def _draft_payload(self) -> dict:
+        return {
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "patient_id": self.p_id.text().strip(),
+            "name": self.p_name.text().strip(),
+            "dob": self.p_dob.text().strip(),
+            "age": self.p_age.value(),
+            "sex": self.p_sex.currentText(),
+            "contact": self.p_contact.text().strip(),
+            "eye": self.p_eye.currentText(),
+            "diabetes_type": self.diabetes_type.currentText(),
+            "diagnosis_date": self.diabetes_diagnosis_date.text().strip() if hasattr(self, "diabetes_diagnosis_date") else "",
+            "duration": self.diabetes_duration.value(),
+            "hba1c": self.hba1c.value(),
+            "prev_treatment": self.prev_treatment.isChecked(),
+            "va_left": self.va_left.text().strip() if hasattr(self, "va_left") else "",
+            "va_right": self.va_right.text().strip() if hasattr(self, "va_right") else "",
+            "bp_systolic": self.bp_systolic.value() if hasattr(self, "bp_systolic") else 0,
+            "bp_diastolic": self.bp_diastolic.value() if hasattr(self, "bp_diastolic") else 0,
+            "fbs": self.fbs.value() if hasattr(self, "fbs") else 0,
+            "rbs": self.rbs.value() if hasattr(self, "rbs") else 0,
+            "symptom_blurred": self.symptom_blurred.isChecked(),
+            "symptom_floaters": self.symptom_floaters.isChecked(),
+            "symptom_flashes": self.symptom_flashes.isChecked(),
+            "symptom_vision_loss": self.symptom_vision_loss.isChecked(),
+            "symptom_other": self.symptom_other.text().strip(),
+            "notes": self.notes.toPlainText(),
+            "image_path": str(self.current_image or "").strip(),
+            "result_class": self.last_result_class,
+            "result_conf": self.last_result_conf,
+            "result_saved": self._current_eye_saved,
+        }
+
+    def _has_any_draft_content(self) -> bool:
+        payload = self._draft_payload()
+        keys = ("name", "dob", "contact", "image_path", "symptom_other", "notes", "result_class")
+        if any(str(payload.get(k, "")).strip() for k in keys):
+            return True
+        return any(bool(payload.get(k)) for k in ("symptom_blurred", "symptom_floaters", "symptom_flashes", "symptom_vision_loss"))
+
+    def _autosave_draft(self):
+        if not self._has_any_draft_content() or self._current_eye_saved:
+            return
+        try:
+            self._draft_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._draft_path, "w", encoding="utf-8") as f:
+                json.dump(self._draft_payload(), f, indent=2)
+            write_activity("INFO", "AUTOSAVE_DRAFT", f"Draft saved to {self._draft_path}")
+        except OSError as err:
+            write_activity("ERROR", "AUTOSAVE_DRAFT_FAILED", str(err))
+
+    def has_draft_session(self) -> bool:
+        return self._draft_path.exists()
+
+    def draft_timestamp(self) -> str:
+        if not self._draft_path.exists():
+            return ""
+        return datetime.fromtimestamp(self._draft_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+    def restore_draft_session(self) -> bool:
+        if not self._draft_path.exists():
+            return False
+        try:
+            with open(self._draft_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False
+
+        self.p_id.setText(str(data.get("patient_id") or self.generate_patient_id()))
+        self.p_name.setText(str(data.get("name") or ""))
+        self.p_dob.setText(str(data.get("dob") or ""))
+        self.p_age.setValue(int(data.get("age") or 0))
+        self.p_sex.setCurrentText(str(data.get("sex") or ""))
+        self.p_contact.setText(str(data.get("contact") or ""))
+        self.p_eye.setCurrentText(str(data.get("eye") or ""))
+        self.diabetes_type.setCurrentText(str(data.get("diabetes_type") or "Select"))
+        if hasattr(self, "diabetes_diagnosis_date"):
+            self.diabetes_diagnosis_date.setText(str(data.get("diagnosis_date") or ""))
+        self.diabetes_duration.setValue(int(data.get("duration") or 0))
+        self.hba1c.setValue(float(data.get("hba1c") or 7.0))
+        self.prev_treatment.setChecked(bool(data.get("prev_treatment")))
+
+        if hasattr(self, "va_left"):
+            self.va_left.setText(str(data.get("va_left") or ""))
+        if hasattr(self, "va_right"):
+            self.va_right.setText(str(data.get("va_right") or ""))
+        if hasattr(self, "bp_systolic"):
+            self.bp_systolic.setValue(int(data.get("bp_systolic") or 0))
+        if hasattr(self, "bp_diastolic"):
+            self.bp_diastolic.setValue(int(data.get("bp_diastolic") or 0))
+        if hasattr(self, "fbs"):
+            self.fbs.setValue(int(data.get("fbs") or 0))
+        if hasattr(self, "rbs"):
+            self.rbs.setValue(int(data.get("rbs") or 0))
+
+        self.symptom_blurred.setChecked(bool(data.get("symptom_blurred")))
+        self.symptom_floaters.setChecked(bool(data.get("symptom_floaters")))
+        self.symptom_flashes.setChecked(bool(data.get("symptom_flashes")))
+        self.symptom_vision_loss.setChecked(bool(data.get("symptom_vision_loss")))
+        self.symptom_other.setText(str(data.get("symptom_other") or ""))
+        self.notes.setPlainText(str(data.get("notes") or ""))
+
+        image_path = str(data.get("image_path") or "")
+        if image_path and os.path.isfile(image_path):
+            self.current_image = image_path
+            self._set_preview_image(image_path)
+            self.btn_analyze.setEnabled(True)
+        else:
+            self.clear_image()
+
+        self.last_result_class = str(data.get("result_class") or "Pending")
+        self.last_result_conf = str(data.get("result_conf") or "Pending")
+        self._current_eye_saved = bool(data.get("result_saved"))
+        write_activity("INFO", "RESTORE_DRAFT", f"Draft restored from {self._draft_path}")
+        return True
+
+    def discard_draft_session(self):
+        safe_remove_file(self._draft_path)
+        write_activity("INFO", "DISCARD_DRAFT", f"Draft removed at {self._draft_path}")
+
 
     def clear_image(self):
         self.current_image = None
@@ -1441,6 +1671,7 @@ class ScreeningPage(QWidget):
         else:
             self._apply_upload_placeholder_style()
         self.btn_analyze.setEnabled(False)
+        self._set_upload_error("")
 
     def _persist_screening_assets(self, patient_id: str, eye_label: str) -> tuple[str, str, str, str]:
         """Copy source/heatmap images into app-managed storage and return DB-ready metadata."""
@@ -1450,7 +1681,11 @@ class ScreeningPage(QWidget):
         if not source_path or not os.path.isfile(source_path):
             raise FileNotFoundError("Source fundus image is missing and cannot be saved.")
 
-        base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stored_images", patient_id)
+        storage_root = self._custom_storage_root.strip() if hasattr(self, "_custom_storage_root") else ""
+        if storage_root:
+            base_dir = os.path.join(storage_root, patient_id)
+        else:
+            base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stored_images", patient_id)
         os.makedirs(base_dir, exist_ok=True)
 
         eye_tag = re.sub(r"[^a-z0-9]+", "_", eye_label.lower()).strip("_") or "eye"
@@ -1480,13 +1715,13 @@ class ScreeningPage(QWidget):
 
     def save_screening(self, reset_after=True):
         if not self._validate_patient_basics():
-            return
+            return {"status": "invalid"}
 
         # Validate new fields
         if not self._validate_blood_pressure():
-            return
+            return {"status": "invalid"}
         if not self._validate_blood_glucose():
-            return
+            return {"status": "invalid"}
 
         name = self.p_name.text().strip()
 
@@ -1529,6 +1764,41 @@ class ScreeningPage(QWidget):
         if symptom_other:
             notes = (notes + f"\nOther symptom: {symptom_other}").strip() if notes else f"Other symptom: {symptom_other}"
 
+        pre_signature_payload = {
+            "pid": pid,
+            "name": name,
+            "dob": dob_str,
+            "age": age,
+            "sex": sex,
+            "contact": contact,
+            "eye": eye,
+            "diabetes_type": diabetes_type,
+            "diag_date": diag_date_str,
+            "duration": duration,
+            "hba1c": hba1c,
+            "prev_treatment": prev_treatment,
+            "notes": notes,
+            "result": result,
+            "confidence": confidence,
+            "va_left": va_left,
+            "va_right": va_right,
+            "bp_sys": bp_sys,
+            "bp_dia": bp_dia,
+            "fbs": fbs_val,
+            "rbs": rbs_val,
+            "symptom_blurred": symptom_blurred_flag,
+            "symptom_floaters": symptom_floaters_flag,
+            "symptom_flashes": symptom_flashes_flag,
+            "symptom_vision_loss": symptom_vision_loss_flag,
+            "image": str(self.current_image or ""),
+            "heatmap": str(getattr(self.results_page, "_current_heatmap_path", "") or ""),
+        }
+        pre_signature = hashlib.sha256(
+            json.dumps(pre_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        if self._current_eye_saved and pre_signature == self._last_saved_signature:
+            return {"status": "unchanged"}
+
         try:
             source_image_path, heatmap_image_path, image_sha256, image_saved_at = self._persist_screening_assets(
                 pid,
@@ -1536,7 +1806,8 @@ class ScreeningPage(QWidget):
             )
         except (OSError, FileNotFoundError) as exc:
             QMessageBox.warning(self, "Save Failed", f"Unable to store screening images:\n\n{exc}")
-            return
+            write_activity("ERROR", "SAVE_FAILED", str(exc))
+            return {"status": "error", "error": str(exc)}
 
         screened_at = datetime.now().strftime("%Y-%m-%d")
 
@@ -1576,11 +1847,33 @@ class ScreeningPage(QWidget):
 
         if not self._save_screening_to_db(patient_data):
             QMessageBox.warning(self, "Save Failed", "Unable to save screening record. Please try again.")
-            return
+            write_activity("ERROR", "SAVE_FAILED", "Database insert failed")
+            return {"status": "error", "error": "Database insert failed"}
 
         self._current_eye_saved = True
+        self._last_saved_signature = pre_signature
+        self._last_saved_at = image_saved_at
+        self._last_saved_source_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), source_image_path)
+        self.discard_draft_session()
+        write_activity(
+            "INFO",
+            "RESULT_SAVED",
+            f"patient_id={pid}; eye={eye}; path={self._last_saved_source_path}; result={result}; confidence={confidence}",
+        )
         if reset_after:
+            saved_name = name or "Unknown Patient"
+            saved_eye = eye or "Selected Eye"
+            QMessageBox.information(
+                self,
+                "Saved to Records",
+                f"Patient screening saved to records.\n\nPatient ID: {pid}\nName: {saved_name}\nEye: {saved_eye}",
+            )
             self.reset_screening()
+            return {
+                "status": "saved",
+                "path": self._last_saved_source_path,
+                "saved_at": self._last_saved_at,
+            }
         else:
             eye_label = eye or "eye"
             # Store first eye result with image/heatmap paths for dual-eye reports
@@ -1608,6 +1901,11 @@ class ScreeningPage(QWidget):
                 box.exec()
                 if box.clickedButton() == continue_btn:
                     self.screen_other_eye()
+            return {
+                "status": "saved",
+                "path": self._last_saved_source_path,
+                "saved_at": self._last_saved_at,
+            }
 
     def screen_other_eye(self):
         """Save the current eye's result and switch to the same patient's other eye."""
@@ -1616,20 +1914,24 @@ class ScreeningPage(QWidget):
 
         if not self._current_eye_saved:
             eye_label = current_eye or "current eye"
-            reply = QMessageBox.question(
-                self,
-                "Save Before Switching",
-                f"The screening for the <b>{eye_label}</b> has not been saved yet.\n\n"
-                f"Save it now before screening the {opposite_eye}?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Yes,
-            )
-            if reply == QMessageBox.StandardButton.Cancel:
+            box = QMessageBox(self)
+            box.setWindowTitle("Unsaved Result")
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setText("Save this result before screening the other eye?")
+            save_btn = box.addButton("Save and Continue", QMessageBox.ButtonRole.AcceptRole)
+            skip_btn = box.addButton("Skip and Continue", QMessageBox.ButtonRole.DestructiveRole)
+            cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(cancel_btn)
+            box.exec()
+            chosen = box.clickedButton()
+            if chosen == cancel_btn:
                 return
-            if reply == QMessageBox.StandardButton.Yes:
-                self.save_screening(reset_after=False)
-                if not self._current_eye_saved:
+            if chosen == save_btn:
+                save_result = self.save_screening(reset_after=False)
+                if not isinstance(save_result, dict) or save_result.get("status") != "saved":
                     return  # save failed, abort
+            if chosen == skip_btn:
+                write_activity("WARNING", "SCREEN_OTHER_EYE_SKIP_SAVE", f"Skipped save for {eye_label}")
 
         # Capture current patient demographics and patient_id before resetting
         saved_pid = self.p_id.text().strip()
@@ -1737,9 +2039,28 @@ class ScreeningPage(QWidget):
     def apply_language(self, language: str):
         from translations import get_pack
         pack = get_pack(language)
-        self._scr_patient_group.setTitle(pack["scr_patient_info"])
-        self._scr_clinical_group.setTitle(pack["scr_clinical_history"])
-        self._scr_image_group.setTitle(pack["scr_image_upload"])
+
+        # Legacy multi-page layout support
+        if hasattr(self, "_scr_patient_group"):
+            self._scr_patient_group.setTitle(pack["scr_patient_info"])
+        if hasattr(self, "_scr_clinical_group"):
+            self._scr_clinical_group.setTitle(pack["scr_clinical_history"])
+        if hasattr(self, "_scr_image_group"):
+            self._scr_image_group.setTitle(pack["scr_image_upload"])
+
+        # Unified layout support
+        if hasattr(self, "_scr_unified_labels") and isinstance(self._scr_unified_labels, dict):
+            keys = [
+                "scr_patient_info", "scr_clinical_history", "scr_image_upload",
+                "scr_label_pid", "scr_label_name", "scr_label_dob", "scr_label_age",
+                "scr_label_sex", "scr_label_contact", "scr_label_eye",
+                "scr_label_diabetes", "scr_label_duration", "scr_label_hba1c", "scr_label_notes",
+            ]
+            for key in keys:
+                label = self._scr_unified_labels.get(key)
+                if label is not None and key in pack:
+                    label.setText(pack[key])
+
         self.btn_upload.setText(pack["scr_upload_btn"])
         self.btn_clear.setText(pack["scr_clear_btn"])
         self.btn_analyze.setText(pack["scr_analyze_btn"])
@@ -1748,21 +2069,23 @@ class ScreeningPage(QWidget):
             pack["scr_label_age"], pack["scr_label_sex"], pack["scr_label_contact"],
             pack["scr_label_eye"],
         ]
-        for row, text in enumerate(patient_labels):
-            item = self._scr_patient_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-            if item and item.widget():
-                item.widget().setText(text)
-                item.widget().setStyleSheet(self._form_label_stylesheet())
+        if hasattr(self, "_scr_patient_form"):
+            for row, text in enumerate(patient_labels):
+                item = self._scr_patient_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                if item and item.widget():
+                    item.widget().setText(text)
+                    item.widget().setStyleSheet(self._form_label_stylesheet())
         clinical_labels = [
             pack["scr_label_diabetes"], pack["scr_label_duration"], pack["scr_label_hba1c"],
             None,
             pack["scr_label_notes"],
         ]
-        for row, text in enumerate(clinical_labels):
-            if text is None:
-                continue
-            item = self._scr_clinical_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-            if item and item.widget():
-                item.widget().setText(text)
-                item.widget().setStyleSheet(self._form_label_stylesheet())
+        if hasattr(self, "_scr_clinical_form"):
+            for row, text in enumerate(clinical_labels):
+                if text is None:
+                    continue
+                item = self._scr_clinical_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                if item and item.widget():
+                    item.widget().setText(text)
+                    item.widget().setStyleSheet(self._form_label_stylesheet())
 

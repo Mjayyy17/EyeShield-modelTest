@@ -10,10 +10,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QGroupBox,
     QPushButton,
-    QCheckBox,
     QComboBox,
     QMessageBox,
-    QScrollArea,
     QFrame,
 )
 
@@ -22,8 +20,6 @@ DARK_STYLESHEET = """
     QWidget {
         background: #1e1e2e;
         color: #cdd6f4;
-        font-family: "Segoe UI Variable", "Segoe UI", "Inter", "Arial";
-        font-size: 13px;
     }
     QMainWindow, QStackedWidget {
         background: #1e1e2e;
@@ -36,7 +32,6 @@ DARK_STYLESHEET = """
         border: 1px solid #45475a;
         border-radius: 8px;
         padding: 8px;
-        font-size: 13px;
         selection-background-color: #585b70;
     }
     QLineEdit:focus, QTextEdit:focus, QComboBox:focus,
@@ -57,15 +52,12 @@ DARK_STYLESHEET = """
         gridline-color: #45475a;
         border: 1px solid #45475a;
         border-radius: 8px;
-        font-size: 13px;
     }
     QHeaderView::section {
         background: #363649;
         color: #bac2de;
         padding: 8px;
         border: none;
-        font-weight: 600;
-        font-size: 13px;
     }
     QTableWidget::item {
         padding: 8px;
@@ -77,8 +69,6 @@ DARK_STYLESHEET = """
         border: 1px solid #45475a;
         border-radius: 8px;
         margin-top: 10px;
-        font-size: 15px;
-        font-weight: 600;
         color: #89b4fa;
     }
     QGroupBox::title {
@@ -95,8 +85,6 @@ DARK_STYLESHEET = """
         border: 1px solid #585b70;
         border-radius: 8px;
         padding: 8px 16px;
-        font-size: 13px;
-        font-weight: 600;
     }
     QPushButton:hover {
         background: #585b70;
@@ -131,8 +119,6 @@ DARK_STYLESHEET = """
         border: 1px solid #eba0ac;
         border-radius: 8px;
         padding: 8px 16px;
-        font-size: 12px;
-        font-weight: 600;
     }
     QPushButton#logoutBtn:hover {
         background: #eba0ac;
@@ -142,11 +128,67 @@ DARK_STYLESHEET = """
     QLabel {
         background: transparent;
         color: #cdd6f4;
-        font-size: 13px;
     }
     QLabel#tileTitle {
         color: #a6adc8;
-        font-size: 12px;
+        letter-spacing: 0.5px;
+    }
+    QLabel#statusLabel {
+        color: #a6adc8;
+    }
+    QLabel#hintLabel {
+        color: #6c7086;
+    }
+    QLabel#pageHeader {
+        color: #89b4fa;
+    }
+    QLabel#pageSubtitle {
+        color: #a6adc8;
+    }
+    QLabel#appTitle {
+        color: #89b4fa;
+        margin-right: 24px;
+    }
+    QLabel#userInfo {
+        color: #a6adc8;
+        margin-left: 16px;
+        margin-right: 8px;
+    }
+    QLabel#welcomeTitle {
+        color: #89b4fa;
+    }
+    QLabel#bigValue {
+        color: #cdd6f4;
+    }
+    QLabel#quoteLabel {
+        color: #a6adc8;
+        font-style: italic;
+    }
+    QLabel#dashDate {
+        color: #89b4fa;
+    }
+    QLabel#insightLabel {
+        color: #a6adc8;
+    }
+    QLabel#activityLabel {
+        color: #a6adc8;
+    }
+    QLabel#notesLabel {
+        color: #a6adc8;
+    }
+    QLabel#statValue {
+        color: #cdd6f4;
+    }
+
+    /* ---- Keep Settings text metrics identical to light mode ---- */
+    QLabel#headerTitle {
+        color: #89b4fa;
+        font-size: 24px;
+        font-weight: 700;
+    }
+    QLabel#fieldLabel {
+        color: #bac2de;
+        font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.5px;
     }
@@ -154,76 +196,21 @@ DARK_STYLESHEET = """
         color: #a6adc8;
         font-size: 12px;
     }
-    QLabel#hintLabel {
-        color: #6c7086;
+    QLabel#metaLabel {
+        color: #a6adc8;
+        font-size: 13px;
+    }
+
+    QGroupBox::title {
         font-size: 12px;
-    }
-    QLabel#pageHeader {
-        color: #89b4fa;
-        font-size: 24px;
         font-weight: 700;
-        font-family: "Calibri", "Inter", "Arial";
-    }
-    QLabel#pageSubtitle {
-        color: #a6adc8;
-        font-size: 13px;
-    }
-    QLabel#appTitle {
-        color: #89b4fa;
-        font-size: 24px;
-        font-weight: 700;
-        margin-right: 24px;
-    }
-    QLabel#userInfo {
-        color: #a6adc8;
-        font-size: 12px;
-        font-weight: 500;
-        margin-left: 16px;
-        margin-right: 8px;
-    }
-    QLabel#welcomeTitle {
-        color: #89b4fa;
-        font-size: 24px;
-        font-weight: 700;
-    }
-    QLabel#bigValue {
-        color: #cdd6f4;
-        font-size: 32px;
-        font-weight: 700;
-    }
-    QLabel#quoteLabel {
-        color: #a6adc8;
-        font-size: 13px;
-        font-style: italic;
-    }
-    QLabel#dashDate {
-        color: #89b4fa;
-        font-size: 13px;
-        font-weight: 600;
-    }
-    QLabel#insightLabel {
-        color: #a6adc8;
-        font-size: 13px;
-    }
-    QLabel#activityLabel {
-        color: #a6adc8;
-        font-size: 14px;
-    }
-    QLabel#notesLabel {
-        color: #a6adc8;
-        font-size: 13px;
-    }
-    QLabel#statValue {
-        color: #cdd6f4;
-        font-size: 18px;
-        font-weight: 700;
+        letter-spacing: 0.5px;
     }
 
     /* ---- Checkboxes ---- */
     QCheckBox {
         color: #cdd6f4;
         spacing: 8px;
-        font-size: 13px;
     }
     QCheckBox::indicator {
         width: 18px;
@@ -294,86 +281,96 @@ class SettingsPage(QWidget):
         super().__init__()
         self.setStyleSheet("""
             QWidget {
-                background: #f8f9fa;
-                color: #212529;
+                background: #ffffff;
+                color: #1f2a37;
                 font-size: 13px;
+            }
+            QLabel#headerTitle {
+                color: #0b63ce;
+                font-size: 24px;
+                font-weight: 700;
+                background: transparent;
             }
             QGroupBox {
                 background: #ffffff;
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                margin-top: 10px;
-                font-weight: 600;
-                padding-top: 8px;
+                border: 1px solid #d7dde5;
+                border-radius: 10px;
+                margin-top: 12px;
+                font-weight: 700;
+                padding: 12px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 12px;
+                left: 14px;
                 padding: 0 6px;
-                color: #0d6efd;
+                color: #0b63ce;
+                font-size: 12px;
+                letter-spacing: 0.5px;
+            }
+            QLabel#fieldLabel {
+                color: #2f4054;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
             }
             QComboBox {
                 background: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                padding: 8px;
+                border: 1px solid #bfd0e0;
+                border-radius: 10px;
+                padding: 8px 10px;
                 min-height: 20px;
             }
-            QComboBox:focus {
-                border: 1px solid #0d6efd;
+            QComboBox:hover {
+                border: 1px solid #90b4db;
             }
-            QCheckBox:focus {
-                color: #0d6efd;
+            QComboBox:focus {
+                border: 1px solid #0b63ce;
             }
             QPushButton {
-                background: #e9ecef;
-                color: #212529;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
+                background: #edf2f7;
+                color: #243447;
+                border: 1px solid #ccd8e5;
+                border-radius: 10px;
                 padding: 8px 16px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: #dee2e6;
+                background: #e2eaf2;
             }
             QPushButton:focus {
-                border: 1px solid #0d6efd;
+                border: 1px solid #0b63ce;
             }
             QPushButton#primaryAction {
-                background: #0d6efd;
+                background: #0b63ce;
                 color: #ffffff;
-                border: 1px solid #0b5ed7;
+                border: 1px solid #0a58ca;
             }
             QPushButton#primaryAction:hover {
-                background: #0b5ed7;
+                background: #0a58ca;
             }
             QLabel#statusLabel {
-                color: #495057;
+                color: #3f556e;
                 font-size: 12px;
+                padding: 2px 0;
+                border: none;
+                background: transparent;
+            }
+            QLabel#metaLabel {
+                color: #51667d;
+                font-size: 13px;
             }
         """)
         _outer = QVBoxLayout(self)
-        _outer.setContentsMargins(0, 0, 0, 0)
-        _outer.setSpacing(0)
+        _outer.setContentsMargins(18, 18, 18, 18)
+        _outer.setSpacing(14)
 
-        _scroll = QScrollArea()
-        _scroll.setWidgetResizable(True)
-        _scroll.setFrameShape(QFrame.Shape.NoFrame)
-        _scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-
-        _inner = QWidget()
-        layout = QVBoxLayout(_inner)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout = _outer
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
 
         self.title_label = QLabel("Settings")
-        self.title_label.setObjectName("pageHeader")
-        self.title_label.setStyleSheet("font-size:24px;font-weight:700;color:#007bff;font-family:'Calibri','Inter','Arial';")
-        self.subtitle_label = QLabel("Local offline preferences for this installation")
-        self.subtitle_label.setObjectName("pageSubtitle")
-        self.subtitle_label.setStyleSheet("font-size:13px;color:#6c757d;")
+        self.title_label.setObjectName("headerTitle")
         layout.addWidget(self.title_label)
-        layout.addWidget(self.subtitle_label)
 
         pref_group = QGroupBox("Preferences")
         self.pref_group = pref_group
@@ -383,42 +380,16 @@ class SettingsPage(QWidget):
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Light", "Dark"])
         self.theme_label = QLabel("Theme:")
+        self.theme_label.setObjectName("fieldLabel")
         pref_layout.addWidget(self.theme_label)
         pref_layout.addWidget(self.theme_combo)
 
         self.lang_combo = QComboBox()
         self.lang_combo.addItems(["English", "Filipino"])
         self.language_label = QLabel("Language:")
+        self.language_label.setObjectName("fieldLabel")
         pref_layout.addWidget(self.language_label)
         pref_layout.addWidget(self.lang_combo)
-
-        self.auto_logout = QCheckBox("Enable auto-logout after inactivity")
-        self.confirm_deletions = QCheckBox("Ask confirmation before destructive actions")
-        self.compact_tables = QCheckBox("Use compact table rows")
-        checkbox_style = """
-            QCheckBox {
-                color: #212529;
-                spacing: 8px;
-                font-size: 13px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 1px solid #6c757d;
-                border-radius: 4px;
-                background: #ffffff;
-            }
-            QCheckBox::indicator:checked {
-                background: #0d6efd;
-                border: 1px solid #0b5ed7;
-            }
-        """
-        self.auto_logout.setStyleSheet(checkbox_style)
-        self.confirm_deletions.setStyleSheet(checkbox_style)
-        self.compact_tables.setStyleSheet(checkbox_style)
-        pref_layout.addWidget(self.auto_logout)
-        pref_layout.addWidget(self.confirm_deletions)
-        pref_layout.addWidget(self.compact_tables)
 
         layout.addWidget(pref_group)
 
@@ -455,97 +426,13 @@ class SettingsPage(QWidget):
         self.about_copyright_label = QLabel("© 2026 EyeShield Team")
         self.about_contact_label = QLabel("For support, contact: support@eyeshield.local")
         for lbl in (self.about_version_label, self.about_copyright_label, self.about_contact_label):
-            lbl.setStyleSheet("color:#495057; font-size:13px;")
+            lbl.setObjectName("metaLabel")
         about_layout.addWidget(self.about_version_label)
         about_layout.addWidget(self.about_copyright_label)
         about_layout.addWidget(self.about_contact_label)
-        layout.addWidget(about_group)
-
-        # ── AI Models ─────────────────────────────────────────────────────
-        models_group = QGroupBox("AI Models")
-        self.models_group = models_group
-        models_layout = QVBoxLayout(models_group)
-        models_layout.setSpacing(6)
-        models_layout.setContentsMargins(12, 12, 12, 12)
-
-        try:
-            import model_inference as _mi
-            _model_dir    = _mi._MODEL_DIR
-            _active_exists = _mi.is_model_available()
-            _active_name  = os.path.basename(_mi.MODEL_PATH)
-            try:
-                _pth_files = sorted(
-                    f for f in os.listdir(_model_dir)
-                    if f.endswith((".pth", ".pt"))
-                    and os.path.getsize(os.path.join(_model_dir, f)) > 1024
-                )
-            except OSError:
-                _pth_files = []
-            _arch_names = list(_mi._ARCH_CONFIGS.keys())
-        except Exception:
-            _active_exists = False
-            _active_name   = "DiabeticRetinopathy.pth"
-            _pth_files     = []
-            _arch_names    = ["efficientnet_b0", "efficientnet_b4", "resnet50", "resnet50_mlp"]
-
-        _lbl_style     = "font-size:13px; color:#495057;"
-        _val_ok_style  = "font-size:13px; color:#198754; font-weight:600;"
-        _val_err_style = "font-size:13px; color:#dc3545; font-weight:600;"
-        _head_style    = "font-size:13px; color:#212529; font-weight:600;"
-
-        def _row(key: str, val: str, val_style: str = _lbl_style):
-            row = QHBoxLayout()
-            k = QLabel(key)
-            k.setStyleSheet(_head_style)
-            k.setFixedWidth(180)
-            v = QLabel(val)
-            v.setStyleSheet(val_style)
-            v.setWordWrap(True)
-            row.addWidget(k)
-            row.addWidget(v, 1)
-            return row
-
-        _status_val   = "Present" if _active_exists else "Missing"
-        _status_style = _val_ok_style if _active_exists else _val_err_style
-        models_layout.addLayout(_row("Active model:", _active_name, _lbl_style))
-        models_layout.addLayout(_row("Model status:", _status_val, _status_style))
-
-        if _pth_files:
-            models_layout.addLayout(_row("Available files:", ",  ".join(_pth_files)))
-
-        _algo_map = {
-            "efficientnet_b0":      "EfficientNet-B0  (224×224 input, 5-class DR)",
-            "efficientnet_b4":      "EfficientNet-B4  (380×380 input, 5-class DR)",
-            "resnet50":             "ResNet-50  (224×224 input, linear head)",
-            "resnet50_mlp":         "ResNet-50 + MLP  (224×224 input, 3-layer MLP head)",
-            "edl_efficientnet_b3":  "EfficientNet-B3 + EDL  (300×300 input, uncertainty-aware)",
-        }
-
-        _sep = QLabel()
-        _sep.setFixedHeight(1)
-        _sep.setStyleSheet("background:#dee2e6; margin: 2px 0;")
-        models_layout.addWidget(_sep)
-
-        _arch_header = QLabel("Supported architectures:")
-        _arch_header.setStyleSheet(_head_style)
-        models_layout.addWidget(_arch_header)
-        for _arch in _arch_names:
-            _arch_lbl = QLabel(f"  •  {_algo_map.get(_arch, _arch)}")
-            _arch_lbl.setStyleSheet(_lbl_style)
-            models_layout.addWidget(_arch_lbl)
-
-        _sep2 = QLabel()
-        _sep2.setFixedHeight(1)
-        _sep2.setStyleSheet("background:#dee2e6; margin: 2px 0;")
-        models_layout.addWidget(_sep2)
-
-        models_layout.addLayout(
-            _row("Grading task:",
-                 "No DR  ·  Mild DR  ·  Moderate DR  ·  Severe DR  ·  Proliferative DR")
-        )
-        models_layout.addLayout(_row("Explainability:", "Grad-CAM++  (offline heatmap overlay)"))
-
-        layout.addWidget(models_group)
+        sections_row = QHBoxLayout()
+        sections_row.setSpacing(10)
+        sections_row.addWidget(about_group, 1)
 
         # ── Terms of Use ──────────────────────────────────────────────────
         terms_group = QGroupBox("Terms of Use")
@@ -561,7 +448,7 @@ class SettingsPage(QWidget):
         self.terms_label.setWordWrap(True)
         self.terms_label.setStyleSheet("color:#495057; font-size:12px; line-height:1.5;")
         terms_layout.addWidget(self.terms_label)
-        layout.addWidget(terms_group)
+        sections_row.addWidget(terms_group, 1)
 
         # ── Privacy Policy ────────────────────────────────────────────────
         privacy_group = QGroupBox("Privacy Policy")
@@ -577,7 +464,8 @@ class SettingsPage(QWidget):
         self.privacy_label.setWordWrap(True)
         self.privacy_label.setStyleSheet("color:#495057; font-size:12px; line-height:1.5;")
         privacy_layout.addWidget(self.privacy_label)
-        layout.addWidget(privacy_group)
+        sections_row.addWidget(privacy_group, 1)
+        layout.addLayout(sections_row)
 
         self.load_settings()
         self.theme_combo.currentTextChanged.connect(self.apply_live_preview)
@@ -585,28 +473,19 @@ class SettingsPage(QWidget):
 
         self.theme_combo.setFocus()
         self.setTabOrder(self.theme_combo, self.lang_combo)
-        self.setTabOrder(self.lang_combo, self.auto_logout)
-        self.setTabOrder(self.auto_logout, self.confirm_deletions)
-        self.setTabOrder(self.confirm_deletions, self.compact_tables)
-        self.setTabOrder(self.compact_tables, self.reset_btn)
+        self.setTabOrder(self.lang_combo, self.reset_btn)
         self.setTabOrder(self.reset_btn, self.save_btn)
 
         layout.addStretch()
-        _scroll.setWidget(_inner)
-        _outer.addWidget(_scroll)
 
     def _language_pack(self, language: str) -> dict:
         from translations import get_pack
         p = get_pack(language)
         return {
             "title": p["settings_title"],
-            "subtitle": p["settings_subtitle"],
             "preferences": p["settings_preferences"],
             "theme": p["settings_theme"],
             "language": p["settings_language"],
-            "auto_logout": p["settings_auto_logout"],
-            "confirm": p["settings_confirm"],
-            "compact": p["settings_compact"],
             "about": p["settings_about"],
             "terms": p["settings_terms"],
             "privacy": p["settings_privacy"],
@@ -630,13 +509,9 @@ class SettingsPage(QWidget):
         # Update language labels
         pack = self._language_pack(self.lang_combo.currentText())
         self.title_label.setText(pack["title"])
-        self.subtitle_label.setText(pack["subtitle"])
         self.pref_group.setTitle(pack["preferences"])
         self.theme_label.setText(pack["theme"])
         self.language_label.setText(pack["language"])
-        self.auto_logout.setText(pack["auto_logout"])
-        self.confirm_deletions.setText(pack["confirm"])
-        self.compact_tables.setText(pack["compact"])
         self.about_group.setTitle(pack["about"])
         self.terms_group.setTitle(pack["terms"])
         self.privacy_group.setTitle(pack["privacy"])
@@ -658,9 +533,6 @@ class SettingsPage(QWidget):
         return {
             "theme": "Light",
             "language": "English",
-            "auto_logout": True,
-            "confirm_deletions": True,
-            "compact_tables": False,
         }
 
     def load_settings(self):
@@ -677,9 +549,6 @@ class SettingsPage(QWidget):
 
         self.theme_combo.setCurrentText(settings.get("theme", "Light"))
         self.lang_combo.setCurrentText(settings.get("language", "English"))
-        self.auto_logout.setChecked(bool(settings.get("auto_logout", True)))
-        self.confirm_deletions.setChecked(bool(settings.get("confirm_deletions", True)))
-        self.compact_tables.setChecked(bool(settings.get("compact_tables", False)))
         self.apply_live_preview()
         self.status_label.setText("Settings loaded")
 
@@ -687,9 +556,6 @@ class SettingsPage(QWidget):
         settings = {
             "theme": self.theme_combo.currentText(),
             "language": self.lang_combo.currentText(),
-            "auto_logout": self.auto_logout.isChecked(),
-            "confirm_deletions": self.confirm_deletions.isChecked(),
-            "compact_tables": self.compact_tables.isChecked(),
         }
         try:
             with open(self._settings_path(), "w", encoding="utf-8") as file:
@@ -704,7 +570,4 @@ class SettingsPage(QWidget):
         defaults = self._default_settings()
         self.theme_combo.setCurrentText(defaults["theme"])
         self.lang_combo.setCurrentText(defaults["language"])
-        self.auto_logout.setChecked(defaults["auto_logout"])
-        self.confirm_deletions.setChecked(defaults["confirm_deletions"])
-        self.compact_tables.setChecked(defaults["compact_tables"])
         self.status_label.setText("Defaults restored (not yet saved)")

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QDialog, QMessageBox, QMenu,
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon
 
 from auth import DB_FILE
 
@@ -245,7 +245,7 @@ class ReportsPage(QWidget):
         cl.setContentsMargins(16, 16, 16, 16)
         cl.setSpacing(12)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search by patient ID, name, result, diabetes type, or HbA1c")
+        self.search_input.setPlaceholderText("Search by patient ID, name, eye screened, result, or confidence")
         self.search_input.setMinimumHeight(36)
         self.search_input.textChanged.connect(self.apply_filters)
         cl.addWidget(self.search_input, 1)
@@ -265,8 +265,8 @@ class ReportsPage(QWidget):
         rl.setContentsMargins(16, 16, 16, 16)
         rl.setSpacing(12)
 
-        self.results_table = QTableWidget(0, 6)
-        self.results_table.setHorizontalHeaderLabels(["Patient ID","Name","Result","Confidence","Diabetes Type","HbA1c"])
+        self.results_table = QTableWidget(0, 5)
+        self.results_table.setHorizontalHeaderLabels(["Patient ID","Name","Eye Screened","Result","Confidence"])
         self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.results_table.setAlternatingRowColors(True)
         self.results_table.setSortingEnabled(True)
@@ -278,7 +278,8 @@ class ReportsPage(QWidget):
         self.results_table.customContextMenuRequested.connect(self._open_results_context_menu)
         self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         rl.addWidget(self.results_table)
         root.addWidget(self._results_group)
 
@@ -333,12 +334,12 @@ class ReportsPage(QWidget):
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
             cur.execute("""
-                SELECT id, patient_id, name, result, confidence, diabetes_type, hba1c,
+                SELECT id, patient_id, name, eyes, result, confidence, diabetes_type, hba1c,
                        archived_at, archived_by, archive_reason
                 FROM patient_records ORDER BY id DESC
             """)
-            rows = [{"id":r[0],"patient_id":r[1],"name":r[2],"result":r[3],"confidence":r[4],
-                     "diabetes_type":r[5],"hba1c":r[6],"archived_at":r[7],"archived_by":r[8],"archive_reason":r[9]}
+            rows = [{"id":r[0],"patient_id":r[1],"name":r[2],"eyes":r[3],"result":r[4],"confidence":r[5],
+                     "diabetes_type":r[6],"hba1c":r[7],"archived_at":r[8],"archived_by":r[9],"archive_reason":r[10]}
                     for r in cur.fetchall()]
             conn.close()
         except Exception as err:
@@ -364,7 +365,7 @@ class ReportsPage(QWidget):
             if row["archived_at"]:
                 continue
             rt = str(row["result"] or "")
-            norm = " ".join([str(row.get(k) or "") for k in ("patient_id","name","result","confidence","diabetes_type","hba1c")]).lower()
+            norm = " ".join([str(row.get(k) or "") for k in ("patient_id","name","eyes","result","confidence")]).lower()
             if query and query not in norm:
                 continue
             rl = rt.lower()
@@ -381,6 +382,7 @@ class ReportsPage(QWidget):
     def _render_results_table(self):
         self.results_table.setSortingEnabled(False)
         self.results_table.setRowCount(0)
+        result_color = self._result_color_for_current_theme
         for row in self._filtered_rows:
             i = self.results_table.rowCount()
             self.results_table.insertRow(i)
@@ -388,18 +390,24 @@ class ReportsPage(QWidget):
             item.setData(Qt.UserRole, row["id"])
             self.results_table.setItem(i, 0, item)
             self.results_table.setItem(i, 1, QTableWidgetItem(str(row["name"] or "")))
+            self.results_table.setItem(i, 2, QTableWidgetItem(str(row.get("eyes") or "")))
             ri = QTableWidgetItem(str(row["result"] or ""))
             if self._is_high_attention_result(row["result"]):
-                ri.setForeground(Qt.darkRed)
+                ri.setForeground(result_color("high"))
             elif "no dr" in str(row["result"] or "").lower():
-                ri.setForeground(Qt.darkGreen)
-            self.results_table.setItem(i, 2, ri)
-            self.results_table.setItem(i, 3, QTableWidgetItem(str(row["confidence"] or "")))
-            self.results_table.setItem(i, 4, QTableWidgetItem(str(row["diabetes_type"] or "")))
-            self.results_table.setItem(i, 5, QTableWidgetItem(str(row["hba1c"] or "")))
+                ri.setForeground(result_color("normal"))
+            self.results_table.setItem(i, 3, ri)
+            self.results_table.setItem(i, 4, QTableWidgetItem(str(row["confidence"] or "")))
         self.results_table.setSortingEnabled(True)
         self.filtered_count_label.setText(f"Total: {len(self._filtered_rows)}")
         self._update_action_buttons()
+
+    def _result_color_for_current_theme(self, level: str) -> QColor:
+        window = self.palette().color(self.backgroundRole())
+        is_dark = window.value() < 128
+        if level == "high":
+            return QColor("#fca5a5") if is_dark else QColor("#991b1b")
+        return QColor("#86efac") if is_dark else QColor("#166534")
 
     def _update_summary_cards(self, rows):
         total = len(rows)
@@ -530,9 +538,9 @@ class ReportsPage(QWidget):
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
-                w.writerow(["Patient ID","Name","Result","Confidence","Diabetes Type","HbA1c","Record Status","Archived At","Archived By"])
+                w.writerow(["Patient ID","Name","Eye Screened","Result","Confidence","Diabetes Type","HbA1c","Record Status","Archived At","Archived By"])
                 for row in self._filtered_rows:
-                    w.writerow([row["patient_id"],row["name"],row["result"],row["confidence"],
+                    w.writerow([row["patient_id"],row["name"],row.get("eyes", ""),row["result"],row["confidence"],
                                 row["diabetes_type"],row["hba1c"],
                                 "Archived" if row["archived_at"] else "Active",
                                 row["archived_at"],row["archived_by"]])
@@ -665,9 +673,11 @@ class ReportsPage(QWidget):
             reco_label_opacity = "1"
         else:
             badge_bg = gb
-            confidence_color = "#374151"
-            divider_color = gb
-            reco_label_opacity = "0.8"
+            confidence_color = "#ffffff"
+            divider_color = "#ffffff"
+            reco_label_opacity = "0.95"
+            gc = "#ffffff"
+            gbg = gb
 
         report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
         screened_by_raw = str(self.username or os.environ.get("EYESHIELD_CURRENT_USER","")).strip()
@@ -704,7 +714,7 @@ class ReportsPage(QWidget):
         # ── section heading helper (pure table, Qt-safe) ─────────────────────
         def sec(title):
             return (
-                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 10px;">'
+                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 8px;">'
                 f'<tr>'
                 f'<td width="3" bgcolor="#2563eb" style="border-radius:2px;">&nbsp;</td>'
                 f'<td width="10">&nbsp;</td>'
@@ -731,32 +741,42 @@ class ReportsPage(QWidget):
             except OSError:
                 return ""
 
-        def img_cell(caption, placeholder_text, image_uri: str):
+        def img_cell(label_text, caption_text, placeholder_text, image_uri: str):
             if image_uri:
-                body = (
-                    f'<tr><td bgcolor="#f9fafb" align="center" valign="middle" '
-                    f'style="padding:10px;">'
-                    f'<img src="{image_uri}" style="max-width:92%;max-height:145px;height:auto;display:block;margin:0 auto;" />'
-                    f'</td></tr>'
+                media = (
+                    f'<table cellpadding="0" cellspacing="0" '
+                    f'style="width:150px;background:#ffffff;border-radius:8px;overflow:hidden;">'
+                    f'<tr><td align="center" valign="middle" style="padding:0;">'
+                    f'<img src="{image_uri}" style="width:150px;height:auto;display:block;border:0;" />'
+                    f'</td></tr></table>'
                 )
             else:
-                body = (
-                    f'<tr><td bgcolor="#f9fafb" align="center" valign="middle" '
-                    f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:16px;">'
-                    f'{placeholder_text}</td></tr>'
+                media = (
+                    f'<table cellpadding="0" cellspacing="0" '
+                    f'style="width:150px;height:150px;background:#f3f4f6;border-radius:8px;overflow:hidden;">'
+                    f'<tr><td align="center" valign="middle" '
+                    f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:8px;">'
+                    f'{placeholder_text}'
+                    f'</td></tr></table>'
                 )
             return (
                 f'<table width="100%" cellpadding="0" cellspacing="0" '
-                f'style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">'
-                f'{body}'
-                f'<tr><td bgcolor="#f3f4f6" style="border-top:1px solid #e5e7eb;padding:6px 12px;'
-                f'font-size:7.5pt;font-weight:bold;color:#6b7280;text-align:center;'
-                f'letter-spacing:0.8px;text-transform:uppercase;">{caption}</td></tr>'
+                f'style="background:#fafafa;border:0.5px solid #d9dee5;border-radius:8px;overflow:hidden;">'
+                f'<tr><td style="padding:10px 12px 0;">'
+                f'<div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#185FA5;'
+                f'border-left:3px solid #185FA5;padding-left:8px;text-transform:uppercase;">{label_text}</div>'
+                f'</td></tr>'
+                f'<tr><td align="center" style="padding:8px 8px;">'
+                f'{media}'
+                f'<div style="font-size:9px;color:#666;font-style:italic;text-align:center;margin-top:6px;">{caption_text}</div>'
+                f'</td></tr>'
                 f'</table>'
             )
 
         source_image_uri = resolve_image_uri(full.get("source_image_path", ""))
         heatmap_image_uri = resolve_image_uri(full.get("heatmap_image_path", ""))
+        eye_raw = str(full.get("eyes") or "Right eye").strip()
+        eye_caption = f"{escape(eye_raw if eye_raw else 'Right eye')} \u2014 fundus photograph"
 
         # ── info grid row helper ──────────────────────────────────────────────
         def info_row(cells, bg="#ffffff"):
@@ -789,7 +809,9 @@ body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#11
         background:#ffffff;margin:0;padding:0;line-height:1.5;}}
     td, div, span{{overflow-wrap:anywhere;word-break:break-word;white-space:normal;}}
 img{{max-width:100%;height:auto;}}
-</style></head><body>
+        </style></head><body>
+
+        <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding-top:4px;">
 
 <!-- HEADER -->
 <table width="100%" cellpadding="0" cellspacing="0">
@@ -812,7 +834,7 @@ img{{max-width:100%;height:auto;}}
 
 <!-- BODY -->
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr><td style="padding:18px 0 24px;">
+<tr><td style="padding:8px 6px 14px;">
 
 {sec("Patient Information")}
 <table width="100%" cellpadding="0" cellspacing="0"
@@ -879,12 +901,14 @@ img{{max-width:100%;height:auto;}}
 
 {sec("Image Results")}
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr><td valign="top" style="padding:0 0 10px 0;">
-    {img_cell("Source Fundus Image", "Source image not stored in this record", source_image_uri)}
-</td></tr>
-<tr><td valign="top" style="padding:0;">
-    {img_cell("Grad-CAM++ Heatmap", "Heatmap not stored in this record", heatmap_image_uri)}
-</td></tr>
+<tr>
+<td width="50%" valign="top" style="padding:0 6px 0 0;">
+    {img_cell("SOURCE FUNDUS IMAGE", eye_caption, "Source image not stored in this record", source_image_uri)}
+</td>
+<td width="50%" valign="top" style="padding:0 0 0 6px;">
+    {img_cell("GRAD-CAM++ HEATMAP", "Model attention overlay", "Heatmap not stored in this record", heatmap_image_uri)}
+</td>
+</tr>
 </table>
 
 {sec("Clinical Analysis")}
@@ -920,9 +944,12 @@ img{{max-width:100%;height:auto;}}
 </td></tr>
 </table>
 
+</td></tr></table>
+
 </body></html>"""
 
         doc = QTextDocument()
+        doc.setDocumentMargin(0)
         doc.setHtml(html)
 
         writer = QPdfWriter(path)
@@ -932,7 +959,7 @@ img{{max-width:100%;height:auto;}}
         except Exception:
             pass
         try:
-            writer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout.Unit.Millimeter)
+            writer.setPageMargins(QMarginsF(14, 8, 14, 14), QPageLayout.Unit.Millimeter)
         except Exception:
             pass
 

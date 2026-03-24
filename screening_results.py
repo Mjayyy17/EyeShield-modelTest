@@ -7,17 +7,19 @@ from datetime import datetime
 from html import escape
 import json
 import os
+from pathlib import Path
 import re
 
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QScrollArea, QFrame, QProgressBar, QMessageBox, QFileDialog, QStyle
+    QScrollArea, QFrame, QProgressBar, QMessageBox, QFileDialog, QStyle, QProgressDialog, QApplication
 )
 from PySide6.QtGui import QPixmap, QFont, QPainter, QColor, QIcon, QPalette
-from PySide6.QtCore import Qt, QSize, QEvent
+from PySide6.QtCore import Qt, QSize, QEvent, QTimer, QByteArray, QBuffer, QIODevice
 
 from screening_styles import DR_COLORS, DR_RECOMMENDATIONS, PROGRESSBAR_STYLE
 from screening_widgets import ClickableImageLabel
+from safety_runtime import can_write_directory, get_free_space_mb, write_activity
 
 
 def _generate_explanation(
@@ -132,7 +134,7 @@ class ResultsWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_page = parent
-        self.setMinimumSize(980, 700)
+        self.setMinimumSize(1080, 760)
         self._icons_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 
         # Report generation state — updated by set_results()
@@ -142,6 +144,10 @@ class ResultsWindow(QWidget):
         self._current_confidence   = ""
         self._current_eye_label    = ""
         self._current_patient_name = ""
+        self._save_state_timer = QTimer(self)
+        self._save_state_timer.setSingleShot(True)
+        self._save_state_timer.timeout.connect(self._reset_save_button_default)
+        self._uncertainty_pct = 0.0
 
         # Outer layout holds only the scroll area so the whole page is scrollable.
         _outer = QVBoxLayout(self)
@@ -157,87 +163,228 @@ class ResultsWindow(QWidget):
         _scroll.setWidget(_container)
 
         layout = QVBoxLayout(_container)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+
+        heading_col = QVBoxLayout()
+        heading_col.setSpacing(8)
+        self.breadcrumb_label = QLabel("SCREENING RESULTS")
+        self.breadcrumb_label.setObjectName("crumbLabel")
+        heading_col.addWidget(self.breadcrumb_label)
 
         self.title_label = QLabel("Results")
-        self.title_label.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        self.title_label.setFont(QFont("DM Sans", 26, QFont.Weight.Bold))
         self.title_label.setObjectName("pageHeader")
-        layout.addWidget(self.title_label)
+        heading_col.addWidget(self.title_label)
 
-        self.subtitle_label = QLabel("Review the screening summary, image preview, and heatmap output area.")
+        self.subtitle_label = QLabel("Review model output, confidence, and clinical support notes.")
         self.subtitle_label.setObjectName("pageSubtitle")
         self.subtitle_label.setWordWrap(True)
-        layout.addWidget(self.subtitle_label)
+        heading_col.addWidget(self.subtitle_label)
+
+        pills_row = QHBoxLayout()
+        pills_row.setSpacing(8)
+        self.eye_badge_label = QLabel("\u2022 Right Eye")
+        self.eye_badge_label.setObjectName("infoPill")
+        self.eye_badge_label.setMinimumHeight(30)
+        pills_row.addWidget(self.eye_badge_label)
+
+        self.save_status_label = QLabel("Saved \u2713")
+        self.save_status_label.setObjectName("savedPill")
+        self.save_status_label.setMinimumHeight(30)
+        self.save_status_label.hide()
+        pills_row.addWidget(self.save_status_label)
+        pills_row.addStretch(1)
+        heading_col.addLayout(pills_row)
+        top_row.addLayout(heading_col, 1)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+
+        self.btn_back = QPushButton("\u2190 Back")
+        self.btn_back.setObjectName("dangerAction")
+        self.btn_back.setMinimumHeight(36)
+        self.btn_back.setIconSize(QSize(18, 18))
+        self.btn_back.clicked.connect(self.go_back)
+        action_row.addWidget(self.btn_back)
+
+        self.btn_save = QPushButton("Save Result")
+        self.btn_save.setObjectName("primaryAction")
+        self.btn_save.setMinimumHeight(36)
+        self.btn_save.setIconSize(QSize(18, 18))
+        self.btn_save.clicked.connect(self.save_patient)
+        action_row.addWidget(self.btn_save)
+
+        self.btn_report = QPushButton("Generate Report")
+        self.btn_report.setObjectName("neutralAction")
+        self.btn_report.setMinimumHeight(36)
+        self.btn_report.setIconSize(QSize(18, 18))
+        self.btn_report.setEnabled(False)
+        self.btn_report.clicked.connect(self.generate_report)
+        action_row.addWidget(self.btn_report)
+
+        self.btn_screen_another = QPushButton("Screen Other Eye")
+        self.btn_screen_another.setObjectName("neutralAction")
+        self.btn_screen_another.setMinimumHeight(36)
+        self.btn_screen_another.setIconSize(QSize(18, 18))
+        self.btn_screen_another.clicked.connect(self._on_screen_another)
+        action_row.addWidget(self.btn_screen_another)
+
+        self.btn_new = QPushButton("+ New Patient")
+        self.btn_new.setObjectName("primaryAction")
+        self.btn_new.setMinimumHeight(36)
+        self.btn_new.setIconSize(QSize(18, 18))
+        self.btn_new.clicked.connect(self.new_patient)
+        action_row.addWidget(self.btn_new)
+
+        top_row.addLayout(action_row)
+        layout.addLayout(top_row)
 
         self._loading_bar = QProgressBar()
         self._loading_bar.setRange(0, 0)   # indeterminate / marquee
-        self._loading_bar.setFixedHeight(6)
+        self._loading_bar.setFixedHeight(4)
         self._loading_bar.setTextVisible(False)
         self._loading_bar.setStyleSheet("""
             QProgressBar {
-                background: #e9ecef;
+                background: #e5e7eb;
                 border: none;
-                border-radius: 3px;
+                border-radius: 2px;
             }
             QProgressBar::chunk {
-                background: #0d6efd;
-                border-radius: 3px;
+                background: #2563eb;
+                border-radius: 2px;
             }
         """)
         self._loading_bar.hide()
         layout.addWidget(self._loading_bar)
 
-        main_row = QHBoxLayout()
-        main_row.setSpacing(16)
+        self.save_note_label = QLabel("")
+        self.save_note_label.setObjectName("metaText")
+        self.save_note_label.hide()
+        layout.addWidget(self.save_note_label)
 
-        review_column = QVBoxLayout()
-        review_column.setSpacing(14)
+        image_row = QHBoxLayout()
+        image_row.setSpacing(12)
 
-        preview_row = QHBoxLayout()
-        preview_row.setSpacing(12)
-
-        source_group = QGroupBox("Source Image")
-        source_group.setObjectName("resultGroupCard")
-        source_layout = QVBoxLayout(source_group)
-        source_layout.setContentsMargins(14, 14, 14, 14)
-        source_layout.setSpacing(10)
-        self.source_label = ClickableImageLabel("", "Source Image")
-        self.source_label.setObjectName("surfaceLabel")
-        self.source_label.setMinimumSize(420, 320)
+        source_card = QGroupBox("")
+        source_card.setObjectName("resultGroupCard")
+        source_layout = QVBoxLayout(source_card)
+        source_layout.setContentsMargins(12, 12, 12, 12)
+        source_layout.setSpacing(8)
+        source_head = QHBoxLayout()
+        source_head.setSpacing(6)
+        source_title = QLabel("Source Image - Fundus")
+        source_title.setObjectName("cardHeaderLabel")
+        source_head.addWidget(source_title)
+        source_head.addStretch(1)
+        source_expand = QLabel("\u2922")
+        source_expand.setObjectName("expandGlyph")
+        source_head.addWidget(source_expand)
+        source_layout.addLayout(source_head)
+        self.source_label = ClickableImageLabel("", "Source Image - Fundus")
+        self.source_label.setObjectName("sourceImageSurface")
+        self.source_label.setMinimumHeight(320)
         self.source_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.source_label.setWordWrap(True)
         source_layout.addWidget(self.source_label)
 
-        heatmap_group = QGroupBox("Heatmap Output")
-        heatmap_group.setObjectName("resultGroupCard")
-        heatmap_layout = QVBoxLayout(heatmap_group)
-        heatmap_layout.setContentsMargins(14, 14, 14, 14)
-        heatmap_layout.setSpacing(10)
-        self.heatmap_label = ClickableImageLabel("", "Heatmap Output")
-        self.heatmap_label.setObjectName("heatmapPlaceholder")
-        self.heatmap_label.setMinimumSize(420, 320)
+        heatmap_card = QGroupBox("")
+        heatmap_card.setObjectName("resultGroupCard")
+        heatmap_layout = QVBoxLayout(heatmap_card)
+        heatmap_layout.setContentsMargins(12, 12, 12, 12)
+        heatmap_layout.setSpacing(8)
+        heatmap_head = QHBoxLayout()
+        heatmap_head.setSpacing(6)
+        heatmap_title = QLabel("Grad-CAM++ Heatmap")
+        heatmap_title.setObjectName("cardHeaderLabel")
+        heatmap_head.addWidget(heatmap_title)
+        heatmap_head.addStretch(1)
+        heatmap_expand = QLabel("\u2922")
+        heatmap_expand.setObjectName("expandGlyph")
+        heatmap_head.addWidget(heatmap_expand)
+        heatmap_layout.addLayout(heatmap_head)
+        self.heatmap_label = ClickableImageLabel("", "Grad-CAM++ Heatmap")
+        self.heatmap_label.setObjectName("heatmapImageSurface")
+        self.heatmap_label.setMinimumHeight(320)
         self.heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.heatmap_label.setWordWrap(True)
         heatmap_layout.addWidget(self.heatmap_label)
 
-        preview_row.addWidget(source_group, 1)
-        preview_row.addWidget(heatmap_group, 1)
-        review_column.addLayout(preview_row, 1)
+        image_row.addWidget(source_card, 1)
+        image_row.addWidget(heatmap_card, 1)
+        layout.addLayout(image_row)
 
         stats_row = QHBoxLayout()
         stats_row.setSpacing(12)
-        classification_card, self.classification_value = self._create_stat_card("Classification")
-        confidence_card, self.confidence_value = self._create_stat_card("Confidence")
-        recommendation_card, self.recommendation_value = self._create_stat_card("Recommendation")
-        self.confidence_value.setStyleSheet("color:#334155;font-size:15px;font-weight:700;")
-        self.recommendation_value.setStyleSheet(
-            "color:#334155;font-size:13px;font-weight:600;line-height:1.4;"
-        )
-        stats_row.addWidget(classification_card, 1)
+
+        class_card = QFrame()
+        class_card.setObjectName("resultStatCard")
+        class_layout = QVBoxLayout(class_card)
+        class_layout.setContentsMargins(14, 14, 14, 14)
+        class_layout.setSpacing(6)
+        class_title = QLabel("CLASSIFICATION")
+        class_title.setObjectName("resultStatTitle")
+        self.classification_value = QLabel("Pending")
+        self.classification_value.setObjectName("classificationValue")
+        self.classification_subtitle = QLabel("Awaiting model result")
+        self.classification_subtitle.setObjectName("metaText")
+        self.classification_subtitle.setWordWrap(True)
+        class_layout.addWidget(class_title)
+        class_layout.addWidget(self.classification_value)
+        class_layout.addWidget(self.classification_subtitle)
+
+        confidence_card = QFrame()
+        confidence_card.setObjectName("resultStatCard")
+        confidence_layout = QVBoxLayout(confidence_card)
+        confidence_layout.setContentsMargins(14, 14, 14, 14)
+        confidence_layout.setSpacing(6)
+        confidence_title = QLabel("CONFIDENCE")
+        confidence_title.setObjectName("resultStatTitle")
+        self.confidence_value = QLabel("0.0%")
+        self.confidence_value.setObjectName("monoValue")
+        self.confidence_bar = QProgressBar()
+        self.confidence_bar.setRange(0, 1000)
+        self.confidence_bar.setValue(0)
+        self.confidence_bar.setTextVisible(False)
+        self.confidence_bar.setObjectName("confidenceBar")
+        self.confidence_bar.setFixedHeight(6)
+        self.uncertainty_value = QLabel("UNCERTAINTY 0.0%")
+        self.uncertainty_value.setObjectName("uncertaintyValue")
+        self.uncertainty_bar = QProgressBar()
+        self.uncertainty_bar.setRange(0, 1000)
+        self.uncertainty_bar.setValue(0)
+        self.uncertainty_bar.setTextVisible(False)
+        self.uncertainty_bar.setObjectName("uncertaintyBar")
+        self.uncertainty_bar.setFixedHeight(6)
+        confidence_layout.addWidget(confidence_title)
+        confidence_layout.addWidget(self.confidence_value)
+        confidence_layout.addWidget(self.confidence_bar)
+        confidence_layout.addWidget(self.uncertainty_value)
+        confidence_layout.addWidget(self.uncertainty_bar)
+
+        reco_card = QFrame()
+        reco_card.setObjectName("resultStatCard")
+        reco_layout = QVBoxLayout(reco_card)
+        reco_layout.setContentsMargins(14, 14, 14, 14)
+        reco_layout.setSpacing(6)
+        reco_title = QLabel("RECOMMENDATION")
+        reco_title.setObjectName("resultStatTitle")
+        self.recommendation_value = QLabel("Consult clinician")
+        self.recommendation_value.setObjectName("resultStatValue")
+        self.recommendation_value.setWordWrap(True)
+        self.recommendation_badge = QLabel("Routine follow-up")
+        self.recommendation_badge.setObjectName("okBadge")
+        reco_layout.addWidget(reco_title)
+        reco_layout.addWidget(self.recommendation_value)
+        reco_layout.addWidget(self.recommendation_badge, 0, Qt.AlignmentFlag.AlignLeft)
+
+        stats_row.addWidget(class_card, 1)
         stats_row.addWidget(confidence_card, 1)
-        stats_row.addWidget(recommendation_card, 2)
-        review_column.addLayout(stats_row)
+        stats_row.addWidget(reco_card, 1)
+        layout.addLayout(stats_row)
 
         # Bilateral comparison card (hidden until second eye is being reviewed)
         self.bilateral_frame = QFrame()
@@ -283,217 +430,277 @@ class ResultsWindow(QWidget):
         brow.addLayout(second_col)
         bilateral_layout.addLayout(brow)
         self.bilateral_frame.hide()
-        review_column.addWidget(self.bilateral_frame)
+        layout.addWidget(self.bilateral_frame)
 
-        main_row.addLayout(review_column, 1)
-
-        action_rail = QFrame()
-        action_rail.setObjectName("actionRail")
-        action_rail.setFixedWidth(280)
-        action_layout = QVBoxLayout(action_rail)
-        action_layout.setContentsMargins(14, 14, 14, 14)
-        action_layout.setSpacing(12)
-
-        rail_label = QLabel("Actions")
-        rail_label.setObjectName("resultStatTitle")
-        action_layout.addWidget(rail_label)
-
-        self.save_status_label = QLabel("")
-        self.save_status_label.setWordWrap(True)
-        self.save_status_label.hide()
-        action_layout.addWidget(self.save_status_label)
-
-        self.btn_save = QPushButton("Save Patient")
-        self.btn_save.setObjectName("primaryAction")
-        self.btn_save.setAutoDefault(True)
-        self.btn_save.setDefault(True)
-        self.btn_save.setMinimumHeight(44)
-        self.btn_save.setIconSize(QSize(18, 18))
-        self.btn_save.clicked.connect(self.save_patient)
-        action_layout.addWidget(self.btn_save)
-
-        self.btn_report = QPushButton("Generate Report")
-        self.btn_report.setMinimumHeight(44)
-        self.btn_report.setIconSize(QSize(18, 18))
-        self.btn_report.setEnabled(False)
-        self.btn_report.clicked.connect(self.generate_report)
-        action_layout.addWidget(self.btn_report)
-
-        self.btn_screen_another = QPushButton("Screen Other Eye")
-        self.btn_screen_another.setObjectName("secondaryAction")
-        self.btn_screen_another.setMinimumHeight(44)
-        self.btn_screen_another.setIconSize(QSize(18, 18))
-        self.btn_screen_another.clicked.connect(self._on_screen_another)
-        action_layout.addWidget(self.btn_screen_another)
-
-        self.btn_new = QPushButton("New Patient")
-        self.btn_new.setMinimumHeight(44)
-        self.btn_new.setIconSize(QSize(18, 18))
-        self.btn_new.clicked.connect(self.new_patient)
-        action_layout.addWidget(self.btn_new)
-
-        self.btn_back = QPushButton("Back to Screening")
-        self.btn_back.setObjectName("dangerAction")
-        self.btn_back.setMinimumHeight(44)
-        self.btn_back.setIconSize(QSize(18, 18))
-        self.btn_back.clicked.connect(self.go_back)
-        action_layout.addWidget(self.btn_back)
-
-        action_layout.addStretch()
         self._apply_action_icons()
-
-        main_row.addWidget(action_rail)
-        layout.addLayout(main_row, 1)
 
         explanation_group = QGroupBox("Clinical Summary")
         explanation_group.setObjectName("resultGroupCard")
         explanation_layout = QVBoxLayout(explanation_group)
-        explanation_layout.setContentsMargins(16, 18, 16, 16)
-        explanation_layout.setSpacing(12)
-        self.explanation_lead = QLabel("Interpretation and recommended next clinical action")
-        self.explanation_lead.setObjectName("summaryLead")
-        self.explanation_lead.setWordWrap(True)
-        explanation_layout.addWidget(self.explanation_lead)
-        self.explanation = QLabel("AI explanation will appear here once available.")
+        explanation_layout.setContentsMargins(14, 14, 14, 14)
+        explanation_layout.setSpacing(10)
+
+        self.summary_line_1 = QLabel("No signs of diabetic retinopathy detected")
+        self.summary_line_1.setObjectName("summaryRowSuccess")
+        self.summary_line_1.setWordWrap(True)
+        explanation_layout.addWidget(self.summary_line_1)
+
+        self.summary_line_2 = QLabel("Patient profile: awaiting demographic and glycaemic context")
+        self.summary_line_2.setObjectName("summaryRowInfo")
+        self.summary_line_2.setWordWrap(True)
+        explanation_layout.addWidget(self.summary_line_2)
+
+        self.summary_line_3 = QLabel("Model uncertainty note: calibrate with clinician review")
+        self.summary_line_3.setObjectName("summaryRowWarn")
+        self.summary_line_3.setWordWrap(True)
+        explanation_layout.addWidget(self.summary_line_3)
+
+        self.explanation = QLabel("")
         self.explanation.setWordWrap(True)
         self.explanation.setObjectName("summaryBody")
         explanation_layout.addWidget(self.explanation)
-        self.explanation_hint = QLabel("AI-generated summary based on the DR grade. Always verify results with a qualified clinician before acting on this output.")
-        self.explanation_hint.setObjectName("statusLabel")
-        self.explanation_hint.setWordWrap(True)
-        explanation_layout.addWidget(self.explanation_hint)
+
         layout.addWidget(explanation_group)
+
+        self.footer_label = QLabel(
+            "Grad-CAM++ \u2022 Automated DR Screening v2.1 \u2022 Results are decision-support tools, not a clinical diagnosis"
+        )
+        self.footer_label.setObjectName("footerLabel")
+        self.footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.footer_label.setWordWrap(True)
+        layout.addWidget(self.footer_label)
 
         self.setStyleSheet("""
             QWidget {
-                background: #f3f7fb;
+                background: #f3f4f6;
                 color: #1f2937;
-                font-family: "Segoe UI", "Inter", "Calibri", sans-serif;
-                font-size: 13px;
+                font-family: "DM Sans", "Segoe UI", "Inter", sans-serif;
+                font-size: 14px;
+            }
+            QScrollArea { border: none; }
+            QLabel#crumbLabel {
+                color: #6b7280;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1.3px;
             }
             QLabel#pageHeader {
-                font-size: 28px;
+                font-size: 34px;
                 font-weight: 700;
-                color: #0f3d66;
-                letter-spacing: 0.2px;
+                color: #111827;
+                letter-spacing: 0.1px;
             }
             QLabel#pageSubtitle {
-                color: #4b5b6c;
-                font-size: 14px;
-            }
-            QGroupBox#resultGroupCard {
-                background: #ffffff;
-                border: 1px solid #d6e2ee;
-                border-radius: 12px;
-                margin-top: 10px;
-                font-weight: 700;
-                color: #334155;
-            }
-            QGroupBox#resultGroupCard::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-                color: #2f4e70;
-                background: #ffffff;
-                font-size: 14px;
-            }
-            QLabel#surfaceLabel, QLabel#heatmapPlaceholder {
-                background: #fbfdff;
-                border: 1px solid #d9e5f2;
-                border-radius: 8px;
-                color: #4b5b6c;
-                font-size: 13px;
-            }
-            QFrame#resultStatCard {
-                background: #ffffff;
-                border: 1px solid #d6e2ee;
-                border-radius: 12px;
-            }
-            QLabel#resultStatTitle {
-                color: #5a6f84;
-                font-size: 12px;
-                font-weight: 700;
-                letter-spacing: 0.4px;
-            }
-            QLabel#resultStatValue {
-                color: #111827;
-                font-size: 19px;
-                font-weight: 700;
-            }
-            QLabel#summaryLead {
-                color: #2f4e70;
-                font-size: 14px;
-                font-weight: 700;
-            }
-            QLabel#summaryBody {
-                background: #f7fbff;
-                border: 1px solid #d8e7f7;
-                border-radius: 10px;
-                color: #1e293b;
-                font-size: 14px;
-                font-weight: 500;
-                line-height: 1.55;
-                padding: 12px 14px;
-            }
-            QFrame#actionRail {
-                background: #ffffff;
-                border: 1px solid #d6e2ee;
-                border-radius: 12px;
-            }
-            QLabel#statusLabel {
                 color: #6b7280;
                 font-size: 13px;
             }
-            QLabel#successLabel {
-                color: #166534;
+            QLabel#infoPill {
+                background: #eff6ff;
+                color: #1d4ed8;
+                border: 1px solid #bfdbfe;
+                border-radius: 20px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
             }
-            QLabel#errorLabel {
-                color: #b91c1c;
+            QLabel#savedPill {
+                background: #ecfdf3;
+                color: #166534;
+                border: 1px solid #86efac;
+                border-radius: 20px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QGroupBox#resultGroupCard {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 12px;
+                margin-top: 0;
+            }
+            QGroupBox#resultGroupCard::title {
+                color: transparent;
+                subcontrol-origin: margin;
+                left: 0;
+                padding: 0;
+            }
+            QLabel#cardHeaderLabel {
+                color: #374151;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QLabel#expandGlyph {
+                color: #6b7280;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLabel#sourceImageSurface {
+                background: #000000;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                color: #9ca3af;
+                font-size: 13px;
+            }
+            QLabel#heatmapImageSurface {
+                background: #0b0f19;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                color: #9ca3af;
+                font-size: 14px;
+            }
+            QFrame#resultStatCard {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 12px;
+            }
+            QLabel#resultStatTitle {
+                color: #6b7280;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.9px;
+            }
+            QLabel#classificationValue {
+                color: #166534;
+                font-size: 33px;
+                font-weight: 800;
+            }
+            QLabel#resultStatValue {
+                color: #111827;
+                font-size: 18px;
+                font-weight: 700;
+            }
+            QLabel#monoValue {
+                color: #1f2937;
+                font-family: "DM Mono", "Consolas", monospace;
+                font-size: 24px;
+                font-weight: 700;
+            }
+            QProgressBar#confidenceBar {
+                border: 1px solid #bfdbfe;
+                border-radius: 4px;
+                background: #eff6ff;
+            }
+            QProgressBar#confidenceBar::chunk {
+                background: #2563eb;
+                border-radius: 4px;
+            }
+            QProgressBar#uncertaintyBar {
+                border: 1px solid #fde68a;
+                border-radius: 4px;
+                background: #fffbeb;
+            }
+            QProgressBar#uncertaintyBar::chunk {
+                background: #d97706;
+                border-radius: 4px;
+            }
+            QLabel#metaText {
+                color: #4b5563;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QFrame#uncertaintyPanel {
+                background: #fffbeb;
+                border: 1px solid #f59e0b;
+                border-radius: 8px;
+            }
+            QLabel#uncertaintyValue {
+                color: #92400e;
+                font-size: 14px;
+                font-weight: 800;
+                letter-spacing: 0.4px;
+            }
+            QLabel#okBadge {
+                background: #ecfdf3;
+                color: #166534;
+                border: 1px solid #86efac;
+                border-radius: 20px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QLabel#summaryBody {
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                color: #374151;
+                font-size: 12px;
+                font-weight: 500;
+                line-height: 1.45;
+                padding: 0;
+            }
+            QLabel#summaryRowSuccess {
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 2px 0;
+                color: #166534;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QLabel#summaryRowInfo {
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 2px 0;
+                color: #1d4ed8;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QLabel#summaryRowWarn {
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 2px 0;
+                color: #b45309;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QLabel#footerLabel {
+                color: #6b7280;
+                font-size: 11px;
+                padding-top: 6px;
             }
             QPushButton {
-                background: #eaf3ff;
-                color: #005ecb;
-                border: 1px solid #b4d0ff;
+                background: #ffffff;
+                color: #1f2937;
+                border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 10px 12px;
+                padding: 8px 12px;
                 font-weight: 700;
             }
             QPushButton:hover {
-                background: #d7e8ff;
+                background: #f9fafb;
             }
             QPushButton:disabled {
-                background: #eef2f7;
+                background: #f3f4f6;
                 color: #94a3b8;
-                border-color: #dbe3ec;
+                border-color: #e5e7eb;
             }
             QPushButton#primaryAction {
-                background: #007bff;
+                background: #2563eb;
                 color: #ffffff;
-                border: 1px solid #0066d4;
+                border: 1px solid #1d4ed8;
             }
             QPushButton#primaryAction:hover {
-                background: #006ee6;
+                background: #1d4ed8;
             }
-            QPushButton#secondaryAction {
-                background: #dcecff;
-                color: #005ecb;
-                border: 1px solid #a9c7ff;
+            QPushButton#neutralAction {
+                background: #ffffff;
+                color: #1f2937;
+                border: 1px solid #d1d5db;
             }
-            QPushButton#secondaryAction:hover {
-                background: #cfe3ff;
+            QPushButton#neutralAction:hover {
+                background: #f9fafb;
             }
             QPushButton#dangerAction {
-                background: #fff1f2;
+                background: #fef2f2;
                 color: #b91c1c;
-                border: 1px solid #fecdd3;
+                border: 1px solid #fca5a5;
             }
             QPushButton#dangerAction:hover {
-                background: #ffe4e6;
+                background: #fee2e2;
             }
         """)
-
-        main_row.setStretch(0, 3)
-        main_row.setStretch(1, 1)
 
     def _is_dark_theme(self) -> bool:
         bg = self.palette().color(QPalette.ColorRole.Window)
@@ -531,7 +738,7 @@ class ResultsWindow(QWidget):
 
     def _apply_action_icons(self):
         self.btn_save.setIcon(self._build_action_icon("save_patient.svg", QStyle.StandardPixmap.SP_DialogSaveButton))
-        self.btn_report.setIcon(self._build_action_icon("generate.svg", QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        self.btn_report.setIcon(self._build_action_icon("generate.svg", QStyle.StandardPixmap.SP_ArrowDown))
         self.btn_screen_another.setIcon(self._build_action_icon("another_eye.svg", QStyle.StandardPixmap.SP_FileDialogStart))
         self.btn_new.setIcon(self._build_action_icon("new_patient.svg", QStyle.StandardPixmap.SP_FileDialogNewFolder))
         self.btn_back.setIcon(self._build_action_icon("back_to_screening.svg", QStyle.StandardPixmap.SP_ArrowBack))
@@ -558,15 +765,76 @@ class ResultsWindow(QWidget):
         card_layout.addWidget(value)
         return card, value
 
+    @staticmethod
+    def _extract_percent_value(value_text: str) -> float:
+        txt = str(value_text or "")
+        match = re.search(r"(\d+(?:\.\d+)?)\s*%", txt)
+        if not match:
+            return 0.0
+        try:
+            return max(0.0, min(100.0, float(match.group(1))))
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _format_percent(value: float) -> str:
+        return f"{max(0.0, min(100.0, value)):.1f}%"
+
+    def _reset_save_button_default(self):
+        self.btn_save.setEnabled(True)
+        self.btn_save.setText("Save Result")
+        self.btn_save.setObjectName("primaryAction")
+        self.btn_save.setStyle(self.btn_save.style())
+        self.save_note_label.hide()
+
+    def _set_save_state(self, state: str, details: str = ""):
+        if state == "writing":
+            self.btn_save.setEnabled(False)
+            self.btn_save.setText("Saving to disk...")
+            self.save_note_label.setText(details or "Writing local record...")
+            self.save_note_label.show()
+            return
+
+        if state == "success":
+            self.btn_save.setEnabled(False)
+            self.btn_save.setText("Saved ✓")
+            self.save_note_label.setText(details)
+            self.save_note_label.show()
+            self._save_state_timer.start(4000)
+            return
+
+        if state == "unchanged":
+            self.btn_save.setEnabled(True)
+            self.btn_save.setText("Save Result")
+            self.save_note_label.setText("No changes since last save")
+            self.save_note_label.show()
+            self._save_state_timer.start(4000)
+            return
+
+        if state == "failed":
+            self.btn_save.setEnabled(True)
+            self.btn_save.setText("Save Failed")
+            self.save_note_label.setText(details)
+            self.save_note_label.show()
+            return
+
+        self._reset_save_button_default()
+
+    def is_uncertainty_blocking(self) -> bool:
+        return False
+
+    def _acknowledge_uncertainty(self):
+        return
+
     def set_results(self, patient_name, image_path, result_class="Pending", confidence_text="Pending", eye_label="", first_eye_result=None, heatmap_path="", patient_data=None, heatmap_pending=False):
         is_loading = result_class in ("Analyzing…", "Pending")
         is_busy = is_loading or heatmap_pending
 
         if patient_name:
-            eye_suffix = f" — {eye_label}" if eye_label else ""
-            self.title_label.setText(f"Results for {patient_name}{eye_suffix}")
+            self.title_label.setText(f"Results for {patient_name}")
         else:
             self.title_label.setText("Results")
+        self.eye_badge_label.setText(f"• {eye_label or 'Screened Eye'}")
 
         # Loading bar
         if is_busy:
@@ -576,9 +844,9 @@ class ResultsWindow(QWidget):
 
         # Reset save feedback state
         self.save_status_label.hide()
-        self.save_status_label.setText("")
+        self.save_status_label.setText("Saved ✓")
         self.btn_save.setEnabled(not is_busy)
-        self.btn_save.setText("Save Patient")
+        self.btn_save.setText("Save Result")
         self.btn_save.setObjectName("primaryAction")
         self.btn_save.setStyle(self.btn_save.style())
         self.btn_screen_another.setEnabled(not is_busy)
@@ -599,49 +867,65 @@ class ResultsWindow(QWidget):
         # Classification with severity colour
         self.classification_value.setText(result_class)
         grade_color = DR_COLORS.get(result_class, "#1f2937")
-        self.classification_value.setStyleSheet(
-            f"color:{grade_color};font-size:20px;font-weight:700;"
-        )
+        self.classification_value.setStyleSheet(f"color:{grade_color};font-size:33px;font-weight:800;")
 
-        self.confidence_value.setText(confidence_text)
-        self.confidence_value.setStyleSheet("color:#334155;font-size:17px;font-weight:700;")
+        class_subtitles = {
+            "No DR": "No diabetic retinopathy detected",
+            "Mild DR": "Mild non-proliferative diabetic retinopathy",
+            "Moderate DR": "Moderate non-proliferative diabetic retinopathy",
+            "Severe DR": "Severe non-proliferative diabetic retinopathy",
+            "Proliferative DR": "Proliferative diabetic retinopathy",
+        }
+        self.classification_subtitle.setText(class_subtitles.get(result_class, "Clinical review advised"))
+
+        confidence_pct = self._extract_percent_value(confidence_text)
+        confidence_display = self._format_percent(confidence_pct)
+        self.confidence_value.setText(confidence_display)
+        self.confidence_bar.setValue(int(round(confidence_pct * 10)))
+
+        uncertainty_match = re.search(r"uncertainty\s*:?\s*(\d+(?:\.\d+)?)\s*%", str(confidence_text or ""), re.IGNORECASE)
+        if uncertainty_match:
+            uncertainty_pct = max(0.0, min(100.0, float(uncertainty_match.group(1))))
+        else:
+            uncertainty_pct = max(0.0, min(100.0, 100.0 - confidence_pct))
+        self._uncertainty_pct = uncertainty_pct
+        self.uncertainty_value.setText(f"Uncertainty {self._format_percent(uncertainty_pct)}")
+        self.uncertainty_bar.setValue(int(round(uncertainty_pct * 10)))
 
         # Grade-specific recommendation
         recommendation = DR_RECOMMENDATIONS.get(result_class, "Consult a clinician")
         if is_loading:
             recommendation = "—"
         self.recommendation_value.setText(recommendation)
-        self.recommendation_value.setStyleSheet(
-            "color:#334155;font-size:14px;font-weight:600;line-height:1.45;"
-        )
+        self.recommendation_badge.setText("Routine follow-up" if result_class == "No DR" else "Clinical follow-up")
 
         # Subtitle
         if is_loading:
             self.subtitle_label.setText("Running DR analysis — please wait…")
         elif heatmap_pending:
-            conf_part = f" with {confidence_text.lower()}" if confidence_text else ""
+            conf_part = f" with confidence {confidence_display}" if confidence_text else ""
             self.subtitle_label.setText(
                 f"Screening complete — {result_class}{conf_part}. "
                 "Generating the Grad-CAM++ heatmap now."
             )
         else:
-            conf_part = f" with {confidence_text.lower()}" if not is_loading else ""
+            conf_part = f" with confidence {confidence_display}" if not is_loading else ""
             self.subtitle_label.setText(
                 f"Screening complete — {result_class}{conf_part}. "
-                "Review the fundus image, Grad-CAM⁺⁺ heatmap, and clinical summary below."
+                "Review source fundus, Grad-CAM++ heatmap, and the clinical summary below."
             )
 
         # Image and heatmap panels
         if image_path:
             source_pixmap = QPixmap(image_path)
-            self.source_label.set_viewable_pixmap(source_pixmap, 460, 360)
+            self.source_label.set_viewable_pixmap(source_pixmap, 520, 390)
             if is_loading:
                 self.heatmap_label.clear_view("")
             elif heatmap_pending:
                 self.heatmap_label.clear_view("")
             elif heatmap_path and os.path.isfile(heatmap_path):
                 hmap_pixmap = QPixmap(heatmap_path)
-                self.heatmap_label.set_viewable_pixmap(hmap_pixmap, 460, 360)
+                self.heatmap_label.set_viewable_pixmap(hmap_pixmap, 520, 390)
             else:
                 self.heatmap_label.clear_view("")
         else:
@@ -650,8 +934,29 @@ class ResultsWindow(QWidget):
 
         # Clinical summary
         if is_loading:
+            self.summary_line_1.setText("■ No signs of diabetic retinopathy detected")
+            self.summary_line_2.setText("■ Patient profile: awaiting demographic and glycaemic context")
+            self.summary_line_3.setText("■ Model uncertainty note: update after analysis")
             self.explanation.setText("Awaiting model output…")
         else:
+            pd = patient_data or {}
+            age = pd.get("age")
+            hba1c = pd.get("hba1c")
+            age_txt = f"{age}-year-old" if age not in (None, "", 0, "0") else "Patient"
+            hba1c_txt = f"{hba1c}%" if hba1c not in (None, "", "0", 0) else "unavailable"
+
+            self.summary_line_1.setText(
+                "■ No signs of diabetic retinopathy detected — high uncertainty requires clinical correlation"
+                if result_class == "No DR"
+                else f"■ {result_class} detected — confirm with clinical examination"
+            )
+            self.summary_line_2.setText(
+                f"■ Patient profile: {age_txt}; HbA1c {hba1c_txt}. Continue glycaemic strategy based on clinical targets"
+            )
+            self.summary_line_3.setText(
+                f"■ Model uncertainty note: clinical review is advised (uncertainty {self._format_percent(uncertainty_pct)}); "
+                "annual screening recommended unless clinician suggests shorter follow-up"
+            )
             self.explanation.setText(_generate_explanation(result_class, confidence_text, patient_data))
 
         # Keep state current so generate_report always has the latest values
@@ -670,12 +975,7 @@ class ResultsWindow(QWidget):
 
     def mark_saved(self, name, eye_label, result_class):
         """Called by ScreeningPage after a successful save to update this panel."""
-        self.save_status_label.setText(f"✓  Saved — {name} ({eye_label}): {result_class}")
-        self.save_status_label.setStyleSheet(
-            "font-weight:700;font-size:13px;"
-            "border-radius:6px;padding:6px 8px;"
-        )
-        self.save_status_label.setObjectName("successLabel")
+        self.save_status_label.setText("Saved ✓")
         self.save_status_label.show()
         self.btn_save.setText("Saved ✓")
         self.btn_save.setEnabled(False)
@@ -689,34 +989,93 @@ class ResultsWindow(QWidget):
             return
         page = self.parent_page
         if not getattr(page, "_current_eye_saved", True):
-            reply = QMessageBox.question(
-                self, "Unsaved Screening",
-                "This screening has not been saved yet.\n\nGo back to the intake form without saving?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
+            box = QMessageBox(self)
+            box.setWindowTitle("Back to Screening")
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setText("Unsaved changes will be lost. Are you sure you want to go back?")
+            stay_btn = box.addButton("Stay", QMessageBox.ButtonRole.RejectRole)
+            go_back_btn = box.addButton("Go Back", QMessageBox.ButtonRole.DestructiveRole)
+            box.setDefaultButton(stay_btn)
+            box.exec()
+            if box.clickedButton() != go_back_btn:
+                write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "Stay")
                 return
+            write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "Go Back")
         if hasattr(page, "stacked_widget"):
             page.stacked_widget.setCurrentIndex(0)
 
     def save_patient(self):
-        if self.parent_page and hasattr(self.parent_page, "save_screening"):
-            self.parent_page.save_screening(reset_after=False)
+        if not self.parent_page or not hasattr(self.parent_page, "save_screening"):
+            return
+
+        self._set_save_state("writing", "Saving to local records...")
+        QApplication.processEvents()
+        result = self.parent_page.save_screening(reset_after=True)
+
+        if not isinstance(result, dict):
+            self._set_save_state("failed", "Save failed due to an unexpected response.")
+            return
+
+        status = result.get("status")
+        if status == "saved":
+            saved_path = str(result.get("path") or "")
+            details = f"Saved ✓ {saved_path}" if saved_path else "Saved ✓"
+            self._set_save_state("success", details)
+            return
+
+        if status == "unchanged":
+            self._set_save_state("unchanged")
+            return
+
+        if status in ("error", "blocked"):
+            self._set_save_state("failed", str(result.get("error") or "Save failed"))
+            box = QMessageBox(self)
+            box.setWindowTitle("Save Failed")
+            box.setIcon(QMessageBox.Icon.Critical)
+            box.setText(str(result.get("error") or "Save failed"))
+            retry_btn = box.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
+            change_btn = box.addButton("Change Save Location", QMessageBox.ButtonRole.ActionRole)
+            box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() == retry_btn:
+                self.save_patient()
+                return
+            if box.clickedButton() == change_btn:
+                folder = QFileDialog.getExistingDirectory(self, "Choose Save Location")
+                if folder:
+                    self.parent_page._custom_storage_root = folder
+                    self.save_patient()
+            return
+
+        self._set_save_state("failed", "Save was not completed.")
 
     def new_patient(self):
         if not self.parent_page:
             return
         page = self.parent_page
         if not getattr(page, "_current_eye_saved", True):
-            reply = QMessageBox.question(
-                self, "Unsaved Screening",
-                "This screening has not been saved yet.\n\nDiscard it and start a new patient?",
-                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
+            box = QMessageBox(self)
+            box.setWindowTitle("Unsaved Screening Result")
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setText(
+                "This screening result has not been saved. Starting a new patient will permanently discard it."
             )
-            if reply != QMessageBox.StandardButton.Discard:
+            save_first_btn = box.addButton("Save First", QMessageBox.ButtonRole.AcceptRole)
+            discard_btn = box.addButton("Discard and Continue", QMessageBox.ButtonRole.DestructiveRole)
+            cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(cancel_btn)
+            box.exec()
+            choice = box.clickedButton()
+            if choice == save_first_btn:
+                self.save_patient()
+                if getattr(page, "_current_eye_saved", False):
+                    write_activity("INFO", "DIALOG_NEW_PATIENT", "Save First")
+                    page.reset_screening()
                 return
+            if choice != discard_btn:
+                write_activity("INFO", "DIALOG_NEW_PATIENT", "Cancel")
+                return
+            write_activity("WARNING", "DIALOG_NEW_PATIENT", "Discard and Continue")
         if hasattr(page, "reset_screening"):
             page.reset_screening()
 
@@ -732,6 +1091,41 @@ class ResultsWindow(QWidget):
             QMessageBox.information(self, "Generate Report", "No completed screening results to report.")
             return
 
+        if self.parent_page and not getattr(self.parent_page, "_current_eye_saved", False):
+            QMessageBox.warning(self, "Generate Report", "Please save the result before generating a report")
+            return
+
+        if not self.bilateral_frame.isVisible():
+            box = QMessageBox(self)
+            box.setWindowTitle("Single-Eye Report")
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setText("Only one eye has been screened. Generate a single-eye report, or screen the other eye first?")
+            generate_btn = box.addButton("Generate Anyway", QMessageBox.ButtonRole.AcceptRole)
+            other_eye_btn = box.addButton("Screen Other Eye First", QMessageBox.ButtonRole.ActionRole)
+            box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() == other_eye_btn:
+                self._on_screen_another()
+                return
+            if box.clickedButton() != generate_btn:
+                return
+
+        pp = self.parent_page
+        missing_profile = []
+        if pp:
+            if not pp.p_name.text().strip():
+                missing_profile.append("Name")
+            if pp.p_age.value() <= 0:
+                missing_profile.append("Age")
+            if pp.hba1c.value() <= 0:
+                missing_profile.append("HbA1c")
+        if missing_profile:
+            QMessageBox.warning(
+                self,
+                "Profile Incomplete",
+                "Patient profile is incomplete. Missing fields will appear blank in the report.\n\nMissing: " + ", ".join(missing_profile),
+            )
+
         default_name = (
             f"EyeShield_Report_{self._current_patient_name or 'Patient'}_"
             f"{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
@@ -742,15 +1136,32 @@ class ResultsWindow(QWidget):
         if not path:
             return
 
+        out_dir = os.path.dirname(path)
+        writable, write_err = can_write_directory(out_dir)
+        if not writable:
+            QMessageBox.warning(
+                self,
+                "Generate Report",
+                f"Cannot write to {out_dir}. Choose a different save location.\n\n{write_err}",
+            )
+            return
+
+        free_mb = get_free_space_mb(out_dir)
+        if free_mb < 50:
+            QMessageBox.warning(
+                self,
+                "Low Disk Space",
+                f"Low disk space ({free_mb} MB remaining). The report may fail to save.",
+            )
+
         try:
             from PySide6.QtGui import QPdfWriter, QPageSize, QPageLayout, QTextDocument
-            from PySide6.QtCore import QUrl, QMarginsF
+            from PySide6.QtCore import QMarginsF
         except ImportError:
             QMessageBox.warning(self, "Generate Report", "PDF generation requires PySide6 PDF support.")
             return
 
         # Collect full patient data from the parent form
-        pp = self.parent_page
         patient_id = pp.p_id.text().strip() if pp and hasattr(pp, "p_id") else ""
         dob = pp.p_dob.text() if pp and hasattr(pp, "p_dob") and hasattr(pp.p_dob, "text") else ""
         age = str(pp.p_age.value()) if pp and hasattr(pp, "p_age") else ""
@@ -868,30 +1279,57 @@ class ResultsWindow(QWidget):
             else '<span style="color:#6b7280;">None reported</span>'
         )
 
-        # Build QTextDocument with embedded images
-        doc = QTextDocument()
-        source_img_html = "<div class='img-placeholder'>Source image not available</div>"
-        heatmap_img_html = "<div class='img-placeholder'>Heatmap not available</div>"
-
-        if self._current_image_path and os.path.isfile(self._current_image_path):
-            src_px = QPixmap(self._current_image_path).scaled(
-                260, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-            )
+        def resolve_image_path(path_value: str) -> str:
+            raw = str(path_value or "").strip()
+            if not raw:
+                return ""
+            if os.path.isabs(raw):
+                candidate = raw
+            else:
+                candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), raw)
+            if not os.path.isfile(candidate):
+                return ""
             try:
-                doc.addResource(QTextDocument.ResourceType.ImageResource, QUrl("src_img"), src_px)
-            except AttributeError:
-                doc.addResource(QTextDocument.ImageResource, QUrl("src_img"), src_px)
-            source_img_html = '<img src="src_img" style="max-width:92%; max-height:145px; height:auto; display:block; margin:0 auto;" />'
+                return str(Path(candidate).resolve())
+            except OSError:
+                return ""
 
-        if self._current_heatmap_path and os.path.isfile(self._current_heatmap_path):
-            hmap_px = QPixmap(self._current_heatmap_path).scaled(
-                260, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        def build_embedded_image_uri(path_value: str, width: int = 150, height: int = 150) -> str:
+            resolved = resolve_image_path(path_value)
+            if not resolved:
+                return ""
+
+            src = QImage(resolved)
+            if src.isNull():
+                return ""
+
+            fitted = src.scaled(
+                width,
+                height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
-            try:
-                doc.addResource(QTextDocument.ResourceType.ImageResource, QUrl("hmap_img"), hmap_px)
-            except AttributeError:
-                doc.addResource(QTextDocument.ImageResource, QUrl("hmap_img"), hmap_px)
-            heatmap_img_html = '<img src="hmap_img" style="max-width:92%; max-height:145px; height:auto; display:block; margin:0 auto;" />'
+
+            canvas = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            canvas.fill(QColor("#ffffff"))
+            painter = QPainter(canvas)
+            x = (width - fitted.width()) // 2
+            y = (height - fitted.height()) // 2
+            painter.drawImage(x, y, fitted)
+            painter.end()
+
+            ba = QByteArray()
+            buffer = QBuffer(ba)
+            if not buffer.open(QIODevice.OpenModeFlag.WriteOnly):
+                return ""
+            canvas.save(buffer, "PNG")
+            buffer.close()
+
+            b64 = bytes(ba.toBase64()).decode("ascii")
+            return f"data:image/png;base64,{b64}"
+
+        source_image_uri = build_embedded_image_uri(self._current_image_path)
+        heatmap_image_uri = build_embedded_image_uri(self._current_heatmap_path)
 
         # Report-tab-matching palette and structure
         _COL = {
@@ -947,13 +1385,15 @@ class ResultsWindow(QWidget):
             reco_label_opacity = "1"
         else:
             badge_bg = gb
-            confidence_color = "#374151"
-            divider_color = gb
-            reco_label_opacity = "0.8"
+            confidence_color = "#ffffff"
+            divider_color = "#ffffff"
+            reco_label_opacity = "0.95"
+            gc = "#ffffff"
+            gbg = gb
 
         def sec(title):
             return (
-                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 10px;">'
+                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 8px;">'
                 f'<tr>'
                 f'<td width="3" bgcolor="#2563eb" style="border-radius:2px;">&nbsp;</td>'
                 f'<td width="10">&nbsp;</td>'
@@ -963,17 +1403,35 @@ class ResultsWindow(QWidget):
                 f'</tr></table>'
             )
 
-        def img_cell(caption, placeholder_text, image_html):
-            body = image_html or placeholder_text
+        def img_cell(label_text, caption_text, placeholder_text, image_uri: str):
+            if image_uri:
+                media = (
+                    f'<table cellpadding="0" cellspacing="0" '
+                    f'style="width:150px;background:#ffffff;border-radius:8px;overflow:hidden;">'
+                    f'<tr><td align="center" valign="middle" style="padding:0;">'
+                    f'<img src="{image_uri}" width="150" height="150" style="width:150px;height:150px;display:block;border:0;" />'
+                    f'</td></tr></table>'
+                )
+            else:
+                media = (
+                    f'<table cellpadding="0" cellspacing="0" '
+                    f'style="width:150px;height:150px;background:#f3f4f6;border-radius:8px;overflow:hidden;">'
+                    f'<tr><td align="center" valign="middle" '
+                    f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:8px;">'
+                    f'{placeholder_text}'
+                    f'</td></tr></table>'
+                )
             return (
                 f'<table width="100%" cellpadding="0" cellspacing="0" '
-                f'style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">'
-                f'<tr><td bgcolor="#f9fafb" align="center" valign="middle" '
-                f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:16px;">'
-                f'{body}</td></tr>'
-                f'<tr><td bgcolor="#f3f4f6" style="border-top:1px solid #e5e7eb;padding:6px 12px;'
-                f'font-size:7.5pt;font-weight:bold;color:#6b7280;text-align:center;'
-                f'letter-spacing:0.8px;text-transform:uppercase;">{caption}</td></tr>'
+                f'style="background:#fafafa;border:0.5px solid #d9dee5;border-radius:8px;overflow:hidden;">'
+                f'<tr><td style="padding:10px 12px 0;">'
+                f'<div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#185FA5;'
+                f'border-left:3px solid #185FA5;padding-left:8px;text-transform:uppercase;">{label_text}</div>'
+                f'</td></tr>'
+                f'<tr><td align="center" style="padding:8px 8px;">'
+                f'{media}'
+                f'<div style="font-size:9px;color:#666;font-style:italic;text-align:center;margin-top:6px;">{caption_text}</div>'
+                f'</td></tr>'
                 f'</table>'
             )
 
@@ -1004,6 +1462,8 @@ td, div, span{{overflow-wrap:anywhere;word-break:break-word;white-space:normal;}
 img{{max-width:100%;height:auto;}}
 </style></head><body>
 
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding-top:4px;">
+
 <table width="100%" cellpadding="0" cellspacing="0">
 <tr><td bgcolor="#0a2540" align="center" style="padding:12px 24px 10px;">
     <div style="font-size:20pt;font-weight:bold;color:#ffffff;letter-spacing:1px;">Patient Record</div>
@@ -1023,7 +1483,7 @@ img{{max-width:100%;height:auto;}}
 </table>
 
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr><td style="padding:18px 0 24px;">
+<tr><td style="padding:8px 6px 14px;">
 
 {sec("Patient Information")}
 <table width="100%" cellpadding="0" cellspacing="0"
@@ -1088,12 +1548,14 @@ img{{max-width:100%;height:auto;}}
 
 {sec("Image Results")}
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr><td valign="top" style="padding:0 0 10px 0;">
-    {img_cell("Source Fundus Image", "Source image not stored in this record", source_img_html)}
-</td></tr>
-<tr><td valign="top" style="padding:0;">
-    {img_cell("Grad-CAM++ Heatmap", "Heatmap not stored in this record", heatmap_img_html)}
-</td></tr>
+<tr>
+<td width="50%" valign="top" style="padding:0 6px 0 0;">
+    {img_cell("SOURCE FUNDUS IMAGE", f"{esc(self._current_eye_label or 'Right eye')} &#8212; fundus photograph", "Source image not stored in this record", source_image_uri)}
+</td>
+<td width="50%" valign="top" style="padding:0 0 0 6px;">
+    {img_cell("GRAD-CAM++ HEATMAP", "Model attention overlay", "Heatmap not stored in this record", heatmap_image_uri)}
+</td>
+</tr>
 </table>
 
 {sec("Clinical Analysis")}
@@ -1128,23 +1590,74 @@ img{{max-width:100%;height:auto;}}
 </td></tr>
 </table>
 
+</td></tr></table>
+
 </body></html>"""
 
+        progress = QProgressDialog("Rendering images...", "", 0, 4, self)
+        progress.setWindowTitle("Generating Report")
+        progress.setCancelButton(None)
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.processEvents()
+
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
         doc.setHtml(html)
+        progress.setValue(1)
+        progress.setLabelText("Composing layout...")
+        QApplication.processEvents()
 
-        writer = QPdfWriter(path)
-        writer.setResolution(150)
-        try:
-            writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-        except Exception:
-            pass
-        try:
-            writer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout.Unit.Millimeter)
-        except Exception:
-            pass
-        doc.print_(writer)
+        progress.setValue(2)
+        progress.setLabelText("Writing PDF...")
+        QApplication.processEvents()
 
-        QMessageBox.information(
-            self, "Report Saved",
-            f"Screening report saved to:\n{path}"
-        )
+        try:
+            writer = QPdfWriter(path)
+            writer.setResolution(150)
+            try:
+                writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+            except Exception:
+                pass
+            try:
+                writer.setPageMargins(QMarginsF(14, 8, 14, 14), QPageLayout.Unit.Millimeter)
+            except Exception:
+                pass
+            doc.print_(writer)
+            if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                raise OSError("Output PDF was not written correctly.")
+        except OSError as err:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            progress.close()
+            write_activity("ERROR", "REPORT_FAILED", str(err))
+            QMessageBox.critical(self, "Generate Report", f"Disk full - PDF generation stopped. Free up space and try again.\n\n{err}")
+            return
+
+        progress.setValue(4)
+        progress.setLabelText("Done")
+        progress.close()
+
+        write_activity("INFO", "REPORT_GENERATED", f"path={path}")
+        done_box = QMessageBox(self)
+        done_box.setWindowTitle("Report Saved")
+        done_box.setIcon(QMessageBox.Icon.Information)
+        done_box.setText(f"Screening report saved to:\n{path}")
+        open_pdf_btn = done_box.addButton("Open PDF", QMessageBox.ButtonRole.ActionRole)
+        open_folder_btn = done_box.addButton("Open Folder", QMessageBox.ButtonRole.ActionRole)
+        done_box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+        done_box.exec()
+        if done_box.clickedButton() == open_pdf_btn:
+            try:
+                os.startfile(path)
+            except Exception:
+                pass
+        elif done_box.clickedButton() == open_folder_btn:
+            try:
+                os.startfile(os.path.dirname(path))
+            except Exception:
+                pass

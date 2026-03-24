@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QGroupBox, QScrollArea
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QGridLayout, QScrollArea
 from PySide6.QtCore import Qt
 
 class HelpSupportPage(QWidget):
@@ -7,30 +7,36 @@ class HelpSupportPage(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        self.setStyleSheet("background: #f8f9fa;")
 
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(24, 24, 24, 24)
-        root_layout.setSpacing(16)
+        root_layout.setContentsMargins(30, 20, 30, 20)
+        root_layout.setSpacing(20)
 
+        # --- Header ---
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(5)
         self._help_title_lbl = QLabel("Help & Support")
         self._help_title_lbl.setObjectName("pageHeader")
-        self._help_title_lbl.setStyleSheet("font-size: 24px; font-weight: 700; color: #007bff;")
-        root_layout.addWidget(self._help_title_lbl)
+        self._help_title_lbl.setStyleSheet("font-weight: 600;")
+        header_layout.addWidget(self._help_title_lbl)
 
-        self._help_subtitle_lbl = QLabel("Quick guidance for daily workflows, troubleshooting, and support contacts.")
+        self._help_subtitle_lbl = QLabel("Find answers, tutorials, and support resources.")
         self._help_subtitle_lbl.setObjectName("pageSubtitle")
-        self._help_subtitle_lbl.setStyleSheet("color: #495057; font-size: 13px;")
-        root_layout.addWidget(self._help_subtitle_lbl)
+        self._help_subtitle_lbl.setStyleSheet("")
+        header_layout.addWidget(self._help_subtitle_lbl)
+        root_layout.addLayout(header_layout)
 
+        # --- Scroll Area for Content ---
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setStyleSheet("background-color: transparent;")
 
         self._help_content_widget = QWidget()
-        self._help_content_layout = QVBoxLayout(self._help_content_widget)
-        self._help_content_layout.setSpacing(16)
-        self._help_content_layout.setContentsMargins(0, 0, 0, 0)
+        self._help_content_widget.setStyleSheet("background-color: transparent;")
+        self._help_grid_layout = QGridLayout(self._help_content_widget)
+        self._help_grid_layout.setSpacing(20)
+        self._help_grid_layout.setContentsMargins(0, 10, 0, 10)
 
         self._build_help_groups("English")
 
@@ -41,25 +47,29 @@ class HelpSupportPage(QWidget):
         from translations import get_pack
         pack = get_pack(language)
 
-        # Clear existing groups (and trailing stretch)
-        while self._help_content_layout.count():
-            item = self._help_content_layout.takeAt(0)
+        # Clear existing items from grid
+        while self._help_grid_layout.count():
+            item = self._help_grid_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        for title_key, body_key in [
+        topics = [
             ("hlp_quick_start", "hlp_quick_start_body"),
-            ("hlp_howto",       "hlp_howto_body"),
-            ("hlp_faq",         "hlp_faq_body"),
-            ("hlp_troubleshoot","hlp_troubleshoot_body"),
-            ("hlp_privacy",     "hlp_privacy_body"),
-            ("hlp_contact",     "hlp_contact_body"),
-        ]:
-            self._help_content_layout.addWidget(
-                self.build_group(pack[title_key], pack[body_key])
-            )
+            ("hlp_howto", "hlp_howto_body"),
+            ("hlp_faq", "hlp_faq_body"),
+            ("hlp_troubleshoot", "hlp_troubleshoot_body"),
+            ("hlp_privacy", "hlp_privacy_body"),
+            ("hlp_contact", "hlp_contact_body"),
+        ]
 
-        self._help_content_layout.addStretch()
+        row, col = 0, 0
+        for title_key, body_key in topics:
+            card = self.build_card(pack[title_key], pack[body_key])
+            self._help_grid_layout.addWidget(card, row, col)
+            col += 1
+            if col > 1:
+                col = 0
+                row += 1
 
     def apply_language(self, language: str):
         from translations import get_pack
@@ -69,31 +79,43 @@ class HelpSupportPage(QWidget):
         self._build_help_groups(language)
 
     @staticmethod
-    def build_group(title, body_html):
-        group = QGroupBox(title)
-        group.setStyleSheet("""
-            QGroupBox {
-                font-size: 15px;
-                font-weight: 700;
-                color: #007bff;
-                border: 1px solid #dee2e6;
+    def build_card(title, body_html):
+        card = QWidget()
+        card.setStyleSheet("""
+            QWidget {
+                background-color: rgba(128, 128, 128, 0.1);
                 border-radius: 8px;
-                margin-top: 8px;
-                background: white;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 14px;
-                padding: 0 8px 0 8px;
+                border: 1px solid rgba(128, 128, 128, 0.2);
             }
         """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(15)
 
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(16, 28, 16, 16)
+        # --- Card Header ---
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(5)
 
-        body = QLabel(body_html)
-        body.setTextFormat(Qt.RichText)
-        body.setWordWrap(True)
-        body.setStyleSheet("color: #495057; font-size: 13px;")
-        layout.addWidget(body)
-        return group
+        title_label = QLabel(title)
+        title_label.setWordWrap(True)
+        title_label.setStyleSheet("""
+            font-weight: 600;
+            color: #2196F3;
+            background: transparent;
+            border: none;
+        """)
+        header_layout.addWidget(title_label)
+        card_layout.addLayout(header_layout)
+
+        # --- Card Body ---
+        body_label = QLabel(body_html)
+        body_label.setTextFormat(Qt.RichText)
+        body_label.setWordWrap(True)
+        body_label.setStyleSheet("""
+            background: transparent;
+            border: none;
+        """)
+        card_layout.addWidget(body_label)
+        card_layout.addStretch()
+
+        return card

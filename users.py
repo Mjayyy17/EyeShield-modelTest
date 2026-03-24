@@ -9,7 +9,7 @@ import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
     QHBoxLayout, QPushButton, QLineEdit, QComboBox, QMessageBox,
-    QGroupBox, QFormLayout, QAbstractItemView, QDialog,
+    QGroupBox, QFormLayout, QAbstractItemView, QDialog, QApplication,
     QHeaderView, QGridLayout, QInputDialog
 )
 from PySide6.QtGui import QFont, QAction, QIcon, QColor
@@ -22,6 +22,12 @@ _ROLE_COLORS = {
     "admin":     ("#c0392b", "#fdf2f2"),
     "clinician": ("#0d6efd", "#eef3ff"),
     "viewer":    ("#6c757d", "#f3f4f6"),
+}
+
+_ROLE_COLORS_DARK = {
+    "admin":     ("#f38ba8", "#3d1f2d"),
+    "clinician": ("#89b4fa", "#1f2f4f"),
+    "viewer":    ("#bac2de", "#2f3348"),
 }
 
 # â”€â”€ Shared dialog stylesheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -607,6 +613,10 @@ class UsersPage(QWidget):
     def refresh_users(self):
         self.users_table.setRowCount(0)
         users = user_store.get_all_users()
+        app = QApplication.instance()
+        app_stylesheet = app.styleSheet() if app else ""
+        dark_mode = "#1e1e2e" in app_stylesheet
+        role_colors = _ROLE_COLORS_DARK if dark_mode else _ROLE_COLORS
         n = len(users)
         self.count_label.setText(f"{n} user{'s' if n != 1 else ''}")
         for user in users:
@@ -620,7 +630,7 @@ class UsersPage(QWidget):
             role_item = QTableWidgetItem(f"  {role}  ")
             role_item.setFlags(role_item.flags() & ~Qt.ItemIsEditable)
             role_item.setTextAlignment(Qt.AlignCenter)
-            fg, bg = _ROLE_COLORS.get(role, ("#212529", "#f8f9fa"))
+            fg, bg = role_colors.get(role, ("#212529", "#f8f9fa"))
             role_item.setForeground(QColor(fg))
             role_item.setBackground(QColor(bg))
 
@@ -632,6 +642,13 @@ class UsersPage(QWidget):
             self.users_table.setItem(row, 0, username_item)
             self.users_table.setItem(row, 1, role_item)
             self.users_table.setItem(row, 2, status_item)
+
+            role_badge = QLabel(role)
+            role_badge.setAlignment(Qt.AlignCenter)
+            role_badge.setStyleSheet(
+                f"color:{fg}; background:{bg}; border-radius:6px; padding:4px 8px; font-weight:600;"
+            )
+            self.users_table.setCellWidget(row, 1, role_badge)
         self.users_table.resizeRowsToContents()
 
     # â”€â”€ CRUD Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

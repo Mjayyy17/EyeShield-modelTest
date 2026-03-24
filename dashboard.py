@@ -6,6 +6,7 @@ Contains main application window and dashboard functionality.
 import contextlib
 import os
 import random
+import re
 import sqlite3
 from datetime import datetime
 
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QGroupBox, QMessageBox, QGridLayout, QProgressBar, QSizePolicy
 )
 from PySide6.QtCore import Qt, QSize, QByteArray
-from PySide6.QtGui import QIcon, QPixmap, QImage, QPainter, QFont
+from PySide6.QtGui import QIcon, QPixmap, QImage, QPainter, QFont, QShortcut, QKeySequence
 from PySide6.QtSvg import QSvgRenderer
 
 from screening import ScreeningPage
@@ -296,6 +297,10 @@ class EyeShieldApp(QMainWindow):
         main_layout.addWidget(self.pages)
         root_layout.addWidget(main)
         self.setCentralWidget(root)
+
+        self._save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        self._save_shortcut.activated.connect(self._global_save_shortcut)
+
         self.refresh_dashboard()
         self._set_active_nav(0)
 
@@ -311,6 +316,23 @@ class EyeShieldApp(QMainWindow):
         saved_lang = self.settings_page.lang_combo.currentText()
         if saved_lang != "English":
             self.apply_language(saved_lang)
+
+        if hasattr(self, "screening_page") and hasattr(self.screening_page, "has_draft_session"):
+            if self.screening_page.has_draft_session():
+                draft_time = self.screening_page.draft_timestamp() if hasattr(self.screening_page, "draft_timestamp") else "recent session"
+                box = QMessageBox(self)
+                box.setWindowTitle("Unsaved Session Found")
+                box.setIcon(QMessageBox.Icon.Information)
+                box.setText(f"An unsaved session was found from {draft_time}. Would you like to restore it?")
+                restore_btn = box.addButton("Restore Session", QMessageBox.ButtonRole.AcceptRole)
+                discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+                box.setDefaultButton(restore_btn)
+                box.exec()
+                if box.clickedButton() == restore_btn and hasattr(self.screening_page, "restore_draft_session"):
+                    self.screening_page.restore_draft_session()
+                    self.pages.setCurrentIndex(1)
+                elif box.clickedButton() == discard_btn and hasattr(self.screening_page, "discard_draft_session"):
+                    self.screening_page.discard_draft_session()
 
     @staticmethod
     def _load_svg_pixmap(svg_path: str, size: int = 64) -> QPixmap:
@@ -503,6 +525,15 @@ class EyeShieldApp(QMainWindow):
             return
         self.pages.setCurrentIndex(index)
 
+    def _global_save_shortcut(self):
+        if not hasattr(self, "pages") or not hasattr(self, "screening_page"):
+            return
+        if self.pages.currentIndex() != 1:
+            return
+        if hasattr(self.screening_page, "stacked_widget") and self.screening_page.stacked_widget.currentIndex() == 1:
+            if hasattr(self.screening_page, "results_page") and hasattr(self.screening_page.results_page, "save_patient"):
+                self.screening_page.results_page.save_patient()
+
     def _on_page_changed(self, index):
         self._set_active_nav(index)
         if index == 2:
@@ -613,7 +644,7 @@ class EyeShieldApp(QMainWindow):
         self._refresh_nav_button_icons(index)
 
     def apply_theme(self, theme: str):
-        """Apply theme across the entire application by clearing local stylesheets."""
+        """Apply theme across the entire application while preserving tab layout metrics."""
         from PySide6.QtWidgets import QApplication
         app = QApplication.instance()
 
@@ -624,6 +655,50 @@ class EyeShieldApp(QMainWindow):
             nav_protected.add(id(self.nav_bar))
             for w in self.nav_bar.findChildren(QWidget):
                 nav_protected.add(id(w))
+
+        def _strip_color_rules(stylesheet: str) -> str:
+            # Keep spacing/size/weight rules intact and strip only color paints
+            # so dark mode can recolor without changing layout/text metrics.
+            color_props = {
+                "color",
+                "background",
+                "background-color",
+                "selection-background-color",
+                "alternate-background-color",
+                "gridline-color",
+                "border-color",
+            }
+            border_like_props = {
+                "border",
+                "border-top",
+                "border-right",
+                "border-bottom",
+                "border-left",
+                "outline",
+            }
+            color_token_pattern = re.compile(
+                r"(#(?:[0-9a-fA-F]{3,8})\\b|rgba?\([^\)]*\)|hsla?\([^\)]*\))"
+            )
+
+            def _rewrite_declaration(match: re.Match) -> str:
+                prop = match.group("prop")
+                value = match.group("value")
+                prop_lower = prop.lower()
+                if prop_lower in color_props:
+                    return ""
+                if prop_lower in border_like_props:
+                    if color_token_pattern.search(value):
+                        stripped_value = color_token_pattern.sub("", value)
+                        stripped_value = re.sub(r"\s+", " ", stripped_value).strip()
+                        if not stripped_value:
+                            return ""
+                        return f"{prop}: {stripped_value};"
+                return match.group(0)
+
+            decl_pattern = re.compile(
+                r"(?P<prop>[a-zA-Z\-]+)\s*:\s*(?P<value>[^;{}]+)\s*;"
+            )
+            return decl_pattern.sub(_rewrite_declaration, stylesheet)
 
         if theme == "Dark":
             if self._dark_mode:
@@ -637,7 +712,7 @@ class EyeShieldApp(QMainWindow):
                     continue
                 if ss := widget.styleSheet():
                     self._saved_styles[id(widget)] = (widget, ss)
-                    widget.setStyleSheet("")
+                    widget.setStyleSheet(_strip_color_rules(ss))
             app.setStyleSheet(DARK_STYLESHEET)
             # Re-apply after stylesheet to ensure our values win
             self._apply_nav_theme(True)
@@ -731,6 +806,34 @@ class EyeShieldApp(QMainWindow):
         if getattr(self, '_logging_out', False):
             event.accept()
             return
+        if hasattr(self, "screening_page") and hasattr(self.screening_page, "has_unsaved_result"):
+            if self.screening_page.has_unsaved_result():
+                box = QMessageBox(self)
+                box.setWindowTitle("Unsaved Results")
+                box.setIcon(QMessageBox.Icon.Warning)
+                box.setText("You have unsaved results. Close anyway?")
+                save_close_btn = box.addButton("Save and Close", QMessageBox.ButtonRole.AcceptRole)
+                close_btn = box.addButton("Close Without Saving", QMessageBox.ButtonRole.DestructiveRole)
+                cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+                box.setDefaultButton(cancel_btn)
+                box.exec()
+
+                chosen = box.clickedButton()
+                if chosen == save_close_btn:
+                    if hasattr(self.screening_page, "save_screening"):
+                        result = self.screening_page.save_screening(reset_after=False)
+                        if isinstance(result, dict) and result.get("status") == "saved":
+                            event.accept()
+                        else:
+                            event.ignore()
+                    else:
+                        event.ignore()
+                    return
+                if chosen == close_btn:
+                    event.accept()
+                else:
+                    event.ignore()
+                return
         reply = QMessageBox.question(
             self,
             "Quit EyeShield",
@@ -1340,7 +1443,7 @@ class EyeShieldApp(QMainWindow):
             if chip:
                 chip.setStyleSheet(
                     f"QWidget#{chip_name} {{ background: {card_bg};"
-                    f" border: 1px solid {card_border}; border-left: 4px solid {accent};"
+                    f" border: 1px solid {card_border};"
                     " border-radius: 10px; }}"
                 )
             if title:
