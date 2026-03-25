@@ -131,8 +131,8 @@ MODEL_PATH = _resolve_default_model_path()
 
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _model: nn.Module | None = None   # lazy-loaded singleton
-_model_input_size = _ARCH_CONFIGS["efficientnet_b0"]["input_size"]
-_model_architecture = "efficientnet_b0"
+_model_input_size = _ARCH_CONFIGS["edl_efficientnet_b3"]["input_size"]
+_model_architecture = "edl_efficientnet_b3"
 _preload_lock = threading.Lock()   # prevents duplicate loading from multiple threads
 
 

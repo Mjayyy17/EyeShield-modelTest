@@ -1442,9 +1442,9 @@ class EyeShieldApp(QMainWindow):
             sub_lbl = self.findChild(QLabel, f"{chip_name}_sub")
             if chip:
                 chip.setStyleSheet(
-                    f"QWidget#{chip_name} {{ background: {card_bg};"
+                    f"QWidget#{chip_name} {{ background-color: {card_bg};"
                     f" border: 1px solid {card_border};"
-                    " border-radius: 10px; }}"
+                    " border-radius: 10px; }"
                 )
             if title:
                 title.setText(title_text)
