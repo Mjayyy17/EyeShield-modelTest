@@ -214,6 +214,7 @@ class LoginWindow(QWidget):
 
         self.failed_attempts = 0
         self.lockout_remaining_seconds = 0
+        self._allow_close_without_prompt = False
         self.lockout_timer = QTimer(self)
         self.lockout_timer.setInterval(1000)
         self.lockout_timer.timeout.connect(self._update_lockout_countdown)
@@ -463,6 +464,7 @@ class LoginWindow(QWidget):
                 contact=contact,
             )
             self.main.show()
+            self._allow_close_without_prompt = True
             self.close()
         else:
             self.failed_attempts += 1
@@ -508,3 +510,20 @@ class LoginWindow(QWidget):
         self.lockout_remaining_seconds = 0
         self._set_login_inputs_enabled(True)
         self.login_feedback.setText("You can try signing in again.")
+
+    def closeEvent(self, event):
+        if self._allow_close_without_prompt:
+            event.accept()
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Quit EyeShield",
+            "Are you sure you want to quit EyeShield?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            event.accept()
+        else:
+            event.ignore()

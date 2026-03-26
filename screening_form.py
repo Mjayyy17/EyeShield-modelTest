@@ -157,17 +157,228 @@ class DropZoneLabel(QLabel):
         self.setStyleSheet(self._LOADED if self.has_image() else self._IDLE)
 
 
+class ModernCalendarDateEdit(QDateEdit):
+    """Clean date picker — dropdown arrow only, no separate button panel."""
+
+    def __init__(self, min_date: QDate, max_date: QDate, arrow_icon_path: str, parent=None):
+        super().__init__(parent)
+        self._min_date = min_date
+        self._max_date = max_date
+        self._arrow_icon_path = str(arrow_icon_path or "").replace("\\", "/")
+
+        self.setDisplayFormat("dd/MM/yyyy")
+        self.setCalendarPopup(True)
+        self.setMinimumDate(min_date)
+        self.setMaximumDate(max_date)
+        self.setSpecialValueText("")
+        self.setDate(min_date)
+
+        cal = QCalendarWidget(self)
+        cal.setGridVisible(False)
+        cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        self.setCalendarWidget(cal)
+
+    def apply_theme(self, dark: bool):
+        if dark:
+            f_bg, f_text, border, focus = "#2b3038", "#d8dee8", "#495160", "#7b92ad"
+            d_bg, d_border = "#343c48", "#596577"
+            c_bg, c_text, c_border = "#262c34", "#d8dee8", "#495160"
+            nav_bg = "#2d3440"
+            sel_bg, sel_fg = "#4f5f75", "#eaf0f7"
+            today, menu_bg = "#8ea3bb", "#2a3038"
+            weekend = "#a6b3c3"
+        else:
+            f_bg, f_text, border, focus = "#ffffff", "#1f2933", "#d7dde6", "#6f8aa6"
+            d_bg, d_border = "#f3f6fa", "#c1ccd9"
+            c_bg, c_text, c_border = "#ffffff", "#1f2933", "#dde4ed"
+            nav_bg = "#f7f9fc"
+            sel_bg, sel_fg = "#dbe5f0", "#1f2933"
+            today, menu_bg = "#8ea6bf", "#ffffff"
+            weekend = "#6b7787"
+
+        arrow = self._arrow_icon_path
+
+        self.setStyleSheet(f"""
+            QDateEdit {{
+                background: {f_bg};
+                color: {f_text};
+                border: 1.5px solid {border};
+                border-radius: 6px;
+                padding: 6px 36px 6px 10px;
+                min-height: 28px;
+                selection-background-color: {focus};
+            }}
+            QDateEdit:focus {{
+                border: 1.5px solid {focus};
+            }}
+            QDateEdit::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 32px;
+                border: none;
+                background: transparent;
+            }}
+            QDateEdit::down-arrow {{
+                image: url("{arrow}");
+                width: 13px;
+                height: 9px;
+            }}
+        """)
+
+        cal = self.calendarWidget()
+        if not cal:
+            return
+
+        cal.setStyleSheet(f"""
+            QCalendarWidget {{
+                background: {c_bg};
+                border: 1px solid {c_border};
+                border-radius: 10px;
+            }}
+
+            /* ── Navigation bar ── */
+            QCalendarWidget QWidget#qt_calendar_navigationbar {{
+                background: {nav_bg};
+                border-bottom: 1px solid {c_border};
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                padding: 4px 6px;
+            }}
+            QCalendarWidget QToolButton {{
+                color: {c_text};
+                background: transparent;
+                border: none;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 4px 10px;
+            }}
+            QCalendarWidget QToolButton:hover {{
+                background: {d_bg};
+            }}
+
+            /* Hide the forward/back arrow buttons — navigation via month/year dropdowns only */
+            QCalendarWidget QToolButton#qt_calendar_prevmonth,
+            QCalendarWidget QToolButton#qt_calendar_nextmonth {{
+                qproperty-icon: none;
+                font-size: 16px;
+                font-weight: 700;
+                padding: 2px 8px;
+                color: {focus};
+            }}
+            QCalendarWidget QToolButton#qt_calendar_prevmonth::menu-indicator,
+            QCalendarWidget QToolButton#qt_calendar_nextmonth::menu-indicator {{
+                width: 0;
+                height: 0;
+            }}
+
+            /* Month / year dropdowns */
+            QCalendarWidget QToolButton::menu-indicator {{
+                image: url("{arrow}");
+                width: 10px;
+                height: 7px;
+                subcontrol-position: right center;
+                subcontrol-origin: padding;
+                right: 4px;
+            }}
+            QCalendarWidget QMenu {{
+                background: {menu_bg};
+                color: {c_text};
+                border: 1px solid {c_border};
+                border-radius: 6px;
+                padding: 4px;
+            }}
+            QCalendarWidget QMenu::item {{
+                padding: 5px 18px;
+                border-radius: 4px;
+            }}
+            QCalendarWidget QMenu::item:selected {{
+                background: {sel_bg};
+                color: {sel_fg};
+            }}
+            QCalendarWidget QSpinBox {{
+                background: {c_bg};
+                color: {c_text};
+                border: 1px solid {c_border};
+                border-radius: 5px;
+                padding: 2px 6px;
+            }}
+
+            /* ── Day grid ── */
+            QCalendarWidget QAbstractItemView {{
+                background: {c_bg};
+                color: {c_text};
+                selection-background-color: {sel_bg};
+                selection-color: {sel_fg};
+                outline: none;
+                gridline-color: transparent;
+            }}
+            QCalendarWidget QAbstractItemView:disabled {{
+                color: #9ca3af;
+            }}
+            QCalendarWidget QTableView {{
+                alternate-background-color: {c_bg};
+            }}
+            QCalendarWidget QTableView::item {{
+                border-radius: 5px;
+                padding: 3px;
+                margin: 1px;
+            }}
+            QCalendarWidget QTableView::item:hover {{
+                background: {d_bg};
+                color: {c_text};
+            }}
+            QCalendarWidget QTableView::item:selected {{
+                background: {sel_bg};
+                color: {sel_fg};
+            }}
+            QCalendarWidget QTableView::item:disabled {{
+                color: #9aa5b1;
+            }}
+            QCalendarWidget QTableView::item:today {{
+                border: 1.5px solid {today};
+                border-radius: 5px;
+            }}
+
+            /* Day-of-week header row */
+            QCalendarWidget QWidget {{
+                alternate-background-color: {c_bg};
+            }}
+        """)
+
+
 _REDESIGN_STYLESHEET = """
 QWidget { background:#ffffff; color:#1f2937; font-family:"Segoe UI","Inter","Calibri",sans-serif; font-size:13px; }
 QFrame#card { background:#ffffff; border:1px solid #dde3ea; border-radius:14px; }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit {
+QLineEdit, QDateEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit {
     background:#ffffff; border:1.5px solid #d3dae3; border-radius:6px; padding:6px 10px;
     color:#1f2937; min-height:28px; selection-background-color:#3f7ca7;
 }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus {
+QLineEdit:focus, QDateEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus {
     border:1.5px solid #3f7ca7; background:#ffffff;
 }
 QLineEdit:read-only { background:#f6f8fb; color:#475569; }
+QDateEdit {
+    padding:6px 34px 6px 10px;
+}
+QDateEdit::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width:28px;
+    border-left:1px solid #9fb4cc;
+    background:#e8f1ff;
+    border-top-right-radius:6px;
+    border-bottom-right-radius:6px;
+}
+QDateEdit::down-arrow {
+    image:none;
+    width:0;
+    height:0;
+    border-left:5px solid transparent;
+    border-right:5px solid transparent;
+    border-top:7px solid #3f7ca7;
+    margin-right:7px;
+}
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
@@ -323,6 +534,25 @@ class ScreeningPage(QWidget):
             """
         )
 
+    def _is_dark_theme_active(self) -> bool:
+        main_window = self.window()
+        return bool(getattr(main_window, "_dark_mode", False)) if main_window is not self else False
+
+    def _apply_dob_theme_style(self):
+        if not hasattr(self, "p_dob"):
+            return
+        dark = self._is_dark_theme_active()
+        if hasattr(self.p_dob, "apply_theme"):
+            self.p_dob.apply_theme(dark)
+            self._dob_default_style = self.p_dob.styleSheet()
+            self._dob_invalid_style = self._dob_default_style + "QDateEdit{border:1.5px solid #ef4444;}"
+            return
+
+        # Fallback for non-modern date widgets.
+        self._dob_default_style = "QDateEdit{border:1.5px solid #d3dae3;border-radius:6px;}"
+        self._dob_invalid_style = "QDateEdit{border:1.5px solid #ef4444;border-radius:6px;}"
+        self.p_dob.setStyleSheet(self._dob_default_style)
+
     def create_unified_page(self):
         root = QWidget()
         root.setStyleSheet(_REDESIGN_STYLESHEET)
@@ -420,12 +650,16 @@ class ScreeningPage(QWidget):
 
         self.p_name = QLineEdit()
         self.p_name.setPlaceholderText("Full name")
-        self.p_dob = QLineEdit()
-        self.p_dob.setPlaceholderText("dd/mm/yyyy")
-        self.p_dob.setMaxLength(10)
+        dob_arrow_icon = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "icons",
+            "dropdown_arrow.svg",
+        )
+        self.p_dob = ModernCalendarDateEdit(self.min_dob_date, self.max_dob_date, dob_arrow_icon)
         self._dob_default_style = ""
-        self._dob_invalid_style = "QLineEdit{border:1.5px solid #ef4444;border-radius:6px;}"
-        self.p_dob.textChanged.connect(self._on_dob_text_changed)
+        self._dob_invalid_style = ""
+        self.p_dob.dateChanged.connect(self.update_age_from_dob)
+        self._apply_dob_theme_style()
         c1.addLayout(row2(field("Full Name", self.p_name, "scr_label_name"), field("Date of Birth", self.p_dob, "scr_label_dob")))
 
         self.p_age = QSpinBox()
@@ -2035,6 +2269,13 @@ class ScreeningPage(QWidget):
             return True
         except Exception:
             return False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_dob_theme_style()
+
+    def apply_theme(self, _theme: str):
+        self._apply_dob_theme_style()
 
     def apply_language(self, language: str):
         from translations import get_pack

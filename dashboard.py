@@ -820,6 +820,9 @@ class EyeShieldApp(QMainWindow):
         current_idx = self.pages.currentIndex()
         self._set_active_nav(current_idx)
 
+        if hasattr(self, "screening_page") and hasattr(self.screening_page, "apply_theme"):
+            self.screening_page.apply_theme(theme)
+
         # Update nav icon for the new theme
         self._update_nav_icon(self._dark_mode)
 

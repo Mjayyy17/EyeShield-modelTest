@@ -268,8 +268,8 @@ class ReportsPage(QWidget):
         rl.setContentsMargins(16, 16, 16, 16)
         rl.setSpacing(12)
 
-        self.results_table = QTableWidget(0, 5)
-        self.results_table.setHorizontalHeaderLabels(["Patient ID","Name","Eye Screened","Result","Confidence"])
+        self.results_table = QTableWidget(0, 6)
+        self.results_table.setHorizontalHeaderLabels(["Patient ID","Name","Eye Screened","Screening Date","Result","Confidence"])
         self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.results_table.setAlternatingRowColors(True)
         self.results_table.setSortingEnabled(True)
@@ -282,7 +282,8 @@ class ReportsPage(QWidget):
         self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         rl.addWidget(self.results_table)
         root.addWidget(self._results_group)
 
@@ -337,12 +338,12 @@ class ReportsPage(QWidget):
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
             cur.execute("""
-                SELECT id, patient_id, name, eyes, result, confidence, diabetes_type, hba1c,
+                SELECT id, patient_id, name, eyes, screened_at, result, confidence, diabetes_type, hba1c,
                        archived_at, archived_by, archive_reason
                 FROM patient_records ORDER BY id DESC
             """)
-            rows = [{"id":r[0],"patient_id":r[1],"name":r[2],"eyes":r[3],"result":r[4],"confidence":r[5],
-                     "diabetes_type":r[6],"hba1c":r[7],"archived_at":r[8],"archived_by":r[9],"archive_reason":r[10]}
+            rows = [{"id":r[0],"patient_id":r[1],"name":r[2],"eyes":r[3],"screened_at":r[4],"result":r[5],"confidence":r[6],
+                     "diabetes_type":r[7],"hba1c":r[8],"archived_at":r[9],"archived_by":r[10],"archive_reason":r[11]}
                     for r in cur.fetchall()]
             conn.close()
         except Exception as err:
@@ -368,7 +369,7 @@ class ReportsPage(QWidget):
             if row["archived_at"]:
                 continue
             rt = str(row["result"] or "")
-            norm = " ".join([str(row.get(k) or "") for k in ("patient_id","name","eyes","result","confidence")]).lower()
+            norm = " ".join([str(row.get(k) or "") for k in ("patient_id","name","eyes","screened_at","result","confidence")]).lower()
             if query and query not in norm:
                 continue
             rl = rt.lower()
@@ -394,13 +395,14 @@ class ReportsPage(QWidget):
             self.results_table.setItem(i, 0, item)
             self.results_table.setItem(i, 1, QTableWidgetItem(str(row["name"] or "")))
             self.results_table.setItem(i, 2, QTableWidgetItem(str(row.get("eyes") or "")))
+            self.results_table.setItem(i, 3, QTableWidgetItem(str(row.get("screened_at") or "")))
             ri = QTableWidgetItem(str(row["result"] or ""))
             if self._is_high_attention_result(row["result"]):
                 ri.setForeground(result_color("high"))
             elif "no dr" in str(row["result"] or "").lower():
                 ri.setForeground(result_color("normal"))
-            self.results_table.setItem(i, 3, ri)
-            self.results_table.setItem(i, 4, QTableWidgetItem(str(row["confidence"] or "")))
+            self.results_table.setItem(i, 4, ri)
+            self.results_table.setItem(i, 5, QTableWidgetItem(str(row["confidence"] or "")))
         self.results_table.setSortingEnabled(True)
         self.filtered_count_label.setText(f"Total: {len(self._filtered_rows)}")
         self._update_action_buttons()
@@ -543,9 +545,9 @@ class ReportsPage(QWidget):
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
-                w.writerow(["Patient ID","Name","Eye Screened","Result","Confidence","Diabetes Type","HbA1c","Record Status","Archived At","Archived By"])
+                w.writerow(["Patient ID","Name","Eye Screened","Screening Date","Result","Confidence","Diabetes Type","HbA1c","Record Status","Archived At","Archived By"])
                 for row in self._filtered_rows:
-                    w.writerow([row["patient_id"],row["name"],row.get("eyes", ""),row["result"],row["confidence"],
+                    w.writerow([row["patient_id"],row["name"],row.get("eyes", ""),row.get("screened_at", ""),row["result"],row["confidence"],
                                 row["diabetes_type"],row["hba1c"],
                                 "Archived" if row["archived_at"] else "Active",
                                 row["archived_at"],row["archived_by"]])
@@ -571,7 +573,7 @@ class ReportsPage(QWidget):
             cur.execute("""
                 SELECT id, patient_id, name, birthdate, age, sex, contact, eyes,
                        diabetes_type, duration, hba1c, prev_treatment, notes,
-                       result, confidence,
+                      result, confidence, screened_at,
                        visual_acuity_left, visual_acuity_right,
                        blood_pressure_systolic, blood_pressure_diastolic,
                        fasting_blood_sugar, random_blood_sugar,
@@ -589,14 +591,14 @@ class ReportsPage(QWidget):
                 "id":row[0],"patient_id":row[1],"name":row[2],"birthdate":row[3],
                 "age":row[4],"sex":row[5],"contact":row[6],"eyes":row[7],
                 "diabetes_type":row[8],"duration":row[9],"hba1c":row[10],
-                "prev_treatment":row[11],"notes":row[12],"result":row[13],"confidence":row[14],
-                "va_left":row[15],"va_right":row[16],
-                "bp_systolic":row[17],"bp_diastolic":row[18],
-                "fbs":row[19],"rbs":row[20],
-                "symptom_blurred":row[21],"symptom_floaters":row[22],
-                "symptom_flashes":row[23],"symptom_vision_loss":row[24],
-                "source_image_path":row[25],"heatmap_image_path":row[26],
-                "image_sha256":row[27],"image_saved_at":row[28],
+                "prev_treatment":row[11],"notes":row[12],"result":row[13],"confidence":row[14],"screened_at":row[15],
+                "va_left":row[16],"va_right":row[17],
+                "bp_systolic":row[18],"bp_diastolic":row[19],
+                "fbs":row[20],"rbs":row[21],
+                "symptom_blurred":row[22],"symptom_floaters":row[23],
+                "symptom_flashes":row[24],"symptom_vision_loss":row[25],
+                "source_image_path":row[26],"heatmap_image_path":row[27],
+                "image_sha256":row[28],"image_saved_at":row[29],
             }
         except Exception:
             return None
@@ -685,6 +687,7 @@ class ReportsPage(QWidget):
             gbg = gb
 
         report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
+        screening_date = str(full.get("screened_at") or "").strip() or report_date
         screened_by_name = str(
             self.display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username
         ).strip()
@@ -853,7 +856,7 @@ img{{max-width:100%;height:auto;}}
 <table width="100%" cellpadding="0" cellspacing="0"
        style="border:1px solid #e5e7eb;border-radius:8px;border-collapse:collapse;overflow:hidden;">
 {info_row([("Full Name", esc(full.get("name"))), ("Date of Birth", esc(full.get("birthdate"))), ("Age", esc(full.get("age"))), ("Sex", esc(full.get("sex")))], "#ffffff")}
-{info_row([("Record No.", esc(full.get("patient_id"))), ("Contact", esc(full.get("contact"))), ("Eye Screened", esc(full.get("eyes"))), ("Screening Date", report_date)], "#f9fafb")}
+{info_row([("Record No.", esc(full.get("patient_id"))), ("Contact", esc(full.get("contact"))), ("Eye Screened", esc(full.get("eyes"))), ("Screening Date", esc(screening_date))], "#f9fafb")}
 </table>
 
 {sec("Clinical History")}

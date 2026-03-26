@@ -724,7 +724,19 @@ class SettingsPage(QWidget):
         self.new_password_input.clear()
         self.username_input.setText(updated_username)
         self.status_label.setText("Account updated")
-        QMessageBox.information(self, "Account", message)
+        requires_relogin = (updated_username != current_username) or bool(new_password)
+        if requires_relogin:
+            QMessageBox.information(
+                self,
+                "Account",
+                f"{message}\n\nPlease re-login to apply all account changes.",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Account",
+                f"{message}\n\nDisplay name changes are applied immediately.",
+            )
 
     def reset_defaults(self):
         defaults = self._default_settings()
