@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
     QHBoxLayout, QPushButton, QLineEdit, QComboBox, QMessageBox,
     QGroupBox, QFormLayout, QAbstractItemView, QDialog, QApplication,
-    QHeaderView, QGridLayout, QInputDialog
+    QHeaderView, QGridLayout, QInputDialog, QMenu
 )
 from PySide6.QtGui import QFont, QAction, QIcon, QColor
 from PySide6.QtCore import Qt
@@ -30,10 +30,12 @@ _ROLE_COLORS_DARK = {
     "viewer":    ("#bac2de", "#2f3348"),
 }
 
+_SPECIALIZATION_OPTIONS = ["Optometrist", "Ophthalmologist"]
+
 # â”€â”€ Shared dialog stylesheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _DIALOG_STYLE = """
     QDialog { background: #ffffff; }
-    QLabel  { font-size: 13px; color: #212529; }
+    QLabel  { font-size: 13px; color: #212529; background: transparent; border: none; }
     QLabel#dlgTitle { font-size: 16px; font-weight: 700; color: #212529; margin-bottom: 2px; }
     QLabel#dlgHint  { font-size: 11px; color: #6c757d; }
     QLineEdit, QComboBox {
@@ -88,20 +90,25 @@ _PAGE_STYLE = """
     QLineEdit:focus, QComboBox:focus { border: 1.5px solid #0d6efd; }
     QTableWidget {
         background: #ffffff;
-        gridline-color: #f0f0f0;
-        border: none;
+        gridline-color: #ecf0f4;
+        border: 1px solid #e3e8ef;
+        border-radius: 10px;
         font-size: 13px;
+        alternate-background-color: #f8fbff;
+        selection-background-color: #e6f0ff;
+        selection-color: #0a58ca;
     }
-    QTableWidget::item { padding: 10px 8px; }
+    QTableWidget#usrUsersTable::item { padding: 12px 10px; border-bottom: 1px solid #eef2f7; }
+    QTableWidget#usrActivityTable::item { padding: 10px 8px; border-bottom: 1px solid #f1f3f6; }
     QTableWidget::item:selected { background: #e7f1ff; color: #0a58ca; }
     QHeaderView::section {
-        background: #f8f9fa;
-        padding: 10px 8px;
+        background: #f6f9fc;
+        padding: 11px 10px;
         border: none;
-        border-bottom: 2px solid #dee2e6;
+        border-bottom: 1px solid #d7dfe8;
         font-weight: 700;
         font-size: 11px;
-        color: #6c757d;
+        color: #5f6b7a;
         letter-spacing: 0.4px;
         text-transform: uppercase;
     }
@@ -118,6 +125,72 @@ _PAGE_STYLE = """
     QPushButton#warningBtn:hover { background: #dc6a0a; }
     QPushButton#neutralBtn   { background: #e9ecef; color: #495057; border: 1px solid #ced4da; }
     QPushButton#neutralBtn:hover { background: #dee2e6; }
+    QLineEdit#usrSearchInput {
+        background: #ffffff;
+        border: 1px solid #cfe0f2;
+        border-radius: 12px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: #1f2937;
+        min-height: 34px;
+    }
+    QLineEdit#usrSearchInput:focus {
+        border: 1.5px solid #0d6efd;
+        background: #f8fbff;
+    }
+    QLabel#usrStatTotal,
+    QLabel#usrStatAdmin,
+    QLabel#usrStatSpecialists,
+    QLabel#usrStatViewer {
+        border-radius: 12px;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        border: 1px solid transparent;
+    }
+    QLabel#usrStatTotal {
+        color: #0b5ed7;
+        background: #eaf2ff;
+        border-color: #cfe0ff;
+    }
+    QLabel#usrStatAdmin {
+        color: #842029;
+        background: #fdecef;
+        border-color: #f5c2c7;
+    }
+    QLabel#usrStatSpecialists {
+        color: #0f5132;
+        background: #e8f7ef;
+        border-color: #b7e4c7;
+    }
+    QLabel#usrStatViewer {
+        color: #495057;
+        background: #f1f3f5;
+        border-color: #dee2e6;
+    }
+    QWidget#usrNotifyBar {
+        background: #e8f5ee;
+        border: 1px solid #b7e4c7;
+        border-radius: 10px;
+    }
+    QLabel#usrNotifyText {
+        color: #0f5132;
+        font-size: 12px;
+        font-weight: 600;
+        background: transparent;
+    }
+    QPushButton#usrNotifyClose {
+        background: transparent;
+        color: #0f5132;
+        border: none;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 0 4px;
+        min-width: 18px;
+    }
+    QPushButton#usrNotifyClose:hover {
+        color: #0a3622;
+    }
 """
 
 
@@ -173,8 +246,30 @@ class UserManager:
     """Thin UI-layer wrapper around user_store."""
 
     @staticmethod
-    def create_user(username, password, role, full_name, acting_username=None, acting_role=None, acting_password=None):
-        return user_store.add_user(username, password, role, full_name, acting_username, acting_role, acting_password)
+    def create_user(
+        username,
+        password,
+        role,
+        full_name,
+        display_name,
+        contact,
+        specialization,
+        acting_username=None,
+        acting_role=None,
+        acting_password=None,
+    ):
+        return user_store.add_user(
+            username,
+            password,
+            role,
+            full_name,
+            display_name,
+            contact,
+            specialization,
+            acting_username,
+            acting_role,
+            acting_password,
+        )
 
     @staticmethod
     def get_all_users():
@@ -216,11 +311,21 @@ class NewUserDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        label_style = "color:#344054;font-size:12px;font-weight:600;background:transparent;border:none;"
+
+        def _lbl(text):
+            lbl = QLabel(text)
+            lbl.setStyleSheet(label_style)
+            return lbl
 
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("3â€“32 chars: letters, digits, _ . -")
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Display name shown across the app")
+        self.full_name_input = QLineEdit()
+        self.full_name_input.setPlaceholderText("Legal or full professional name")
+        self.display_name_input = QLineEdit()
+        self.display_name_input.setPlaceholderText("Display name shown across the app and reports")
+        self.contact_input = QLineEdit()
+        self.contact_input.setPlaceholderText("Phone or email")
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Min 12 chars")
         self.password_input.setEchoMode(QLineEdit.Password)
@@ -231,13 +336,20 @@ class NewUserDialog(QDialog):
         _add_eye_toggle(self.confirm_password_input)
         self.role_input = QComboBox()
         self.role_input.addItems(_assignable_roles())
+        self.specialization_input = QComboBox()
+        self.specialization_input.addItems(_SPECIALIZATION_OPTIONS)
+        self.role_input.currentTextChanged.connect(self._on_role_changed)
         
-        form.addRow("Name:", self.name_input)
-        form.addRow("Username:", self.username_input)
-        form.addRow("Password:", self.password_input)
-        form.addRow("Confirm:", self.confirm_password_input)
-        form.addRow("Role:", self.role_input)
+        form.addRow(_lbl("Full Name:"), self.full_name_input)
+        form.addRow(_lbl("Display Name:"), self.display_name_input)
+        form.addRow(_lbl("Contact:"), self.contact_input)
+        form.addRow(_lbl("Username:"), self.username_input)
+        form.addRow(_lbl("Password:"), self.password_input)
+        form.addRow(_lbl("Confirm:"), self.confirm_password_input)
+        form.addRow(_lbl("Role:"), self.role_input)
+        form.addRow(_lbl("Specialization:"), self.specialization_input)
         layout.addLayout(form)
+        self._on_role_changed(self.role_input.currentText())
 
         hint = QLabel("Password must be 12+ chars with uppercase, lowercase, number & symbol.")
         hint.setObjectName("dlgHint")
@@ -257,15 +369,26 @@ class NewUserDialog(QDialog):
         btn_row.addWidget(create_btn)
         layout.addLayout(btn_row)
 
+    def _on_role_changed(self, role_value):
+        is_clinician = str(role_value or "").strip().lower() == "clinician"
+        self.specialization_input.setEnabled(is_clinician)
+
     def _create_user(self):
         username = self.username_input.text().strip()
-        full_name = self.name_input.text().strip()
+        full_name = self.full_name_input.text().strip()
+        display_name = self.display_name_input.text().strip()
+        contact = self.contact_input.text().strip()
         password = self.password_input.text()
         role = self.role_input.currentText()
+        specialization = self.specialization_input.currentText().strip()
 
         # ── Field presence ────────────────────────────────────────────
-        if not username or not full_name or not password:
-            QMessageBox.warning(self, "Missing Fields", "Name, username, and password are required.")
+        if not username or not full_name or not display_name or not password:
+            QMessageBox.warning(self, "Missing Fields", "Full name, display name, username, and password are required.")
+            return
+
+        if role == "clinician" and not specialization:
+            QMessageBox.warning(self, "Missing Specialization", "Select a specialization for clinician accounts.")
             return
 
         # ── Username format (mirrors auth.py USERNAME_PATTERN) ────────
@@ -274,6 +397,14 @@ class NewUserDialog(QDialog):
                 self, "Invalid Username",
                 "Username must be 3–32 characters and may only contain\n"
                 "letters, digits, underscores (_), dots (.) and hyphens (-).",
+            )
+            return
+
+        if username.lower() == password.lower():
+            QMessageBox.warning(
+                self,
+                "Invalid Credentials",
+                "Username and password cannot be the same.",
             )
             return
 
@@ -323,7 +454,7 @@ class NewUserDialog(QDialog):
         proceed = QMessageBox.question(
             self,
             "Confirm Account Creation",
-            f"Create account for <b>{full_name}</b> with role <b>{role}</b>?",
+            f"Create account for <b>{display_name}</b> with role <b>{role}</b>?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -345,6 +476,9 @@ class NewUserDialog(QDialog):
         success = UserManager.create_user(
             username, password, role,
             full_name,
+            display_name,
+            contact,
+            specialization,
             acting_username=acting_username,
             acting_role=acting_role,
             acting_password=acting_password,
@@ -356,10 +490,8 @@ class NewUserDialog(QDialog):
                 parent.log_activity(username, f"Created as {role}")
             if hasattr(parent, "_set_status"):
                 parent._set_status(f"User '{username}' created successfully")
-            QMessageBox.information(
-                self, "Account Created",
-                f"User account '{full_name}' ({role}) was created successfully.",
-            )
+            if hasattr(parent, "show_notification"):
+                parent.show_notification(f"Account created: {display_name} ({role}).")
             self.accept()
         else:
             QMessageBox.warning(
@@ -499,8 +631,8 @@ class UsersPage(QWidget):
             "font-size:22px;font-weight:700;color:#0d6efd;"
             "font-family:'Segoe UI','Inter','Arial';"
         )
-        self.count_label = QLabel("0 users")
-        self.count_label.setStyleSheet("color:#6c757d;font-size:13px;margin-left:10px;")
+        self.count_label = QLabel("User Directory")
+        self.count_label.setStyleSheet("color:#6c757d;font-size:13px;font-weight:600;margin-left:10px;")
         header_row.addWidget(self._usr_title_lbl)
         header_row.addWidget(self.count_label)
         header_row.addStretch()
@@ -515,6 +647,48 @@ class UsersPage(QWidget):
         header_row.addWidget(add_btn)
         main_layout.addLayout(header_row)
 
+        self.notify_bar = QWidget()
+        self.notify_bar.setObjectName("usrNotifyBar")
+        notify_layout = QHBoxLayout(self.notify_bar)
+        notify_layout.setContentsMargins(10, 8, 10, 8)
+        notify_layout.setSpacing(8)
+        self.notify_text = QLabel("")
+        self.notify_text.setObjectName("usrNotifyText")
+        notify_layout.addWidget(self.notify_text, 1)
+        self.notify_close_btn = QPushButton("×")
+        self.notify_close_btn.setObjectName("usrNotifyClose")
+        self.notify_close_btn.clicked.connect(self.notify_bar.hide)
+        notify_layout.addWidget(self.notify_close_btn)
+        self.notify_bar.hide()
+        main_layout.addWidget(self.notify_bar)
+
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(10)
+
+        self.search_input = QLineEdit()
+        self.search_input.setObjectName("usrSearchInput")
+        self.search_input.setPlaceholderText("Search by name, username, role, specialization, or contact")
+        self.search_input.textChanged.connect(self.refresh_users)
+        controls_row.addWidget(self.search_input, 1)
+
+        self.total_chip = QLabel("Total 0")
+        self.total_chip.setObjectName("usrStatTotal")
+        controls_row.addWidget(self.total_chip)
+
+        self.admin_chip = QLabel("Admin 0")
+        self.admin_chip.setObjectName("usrStatAdmin")
+        controls_row.addWidget(self.admin_chip)
+
+        self.specialists_chip = QLabel("Specialists 0")
+        self.specialists_chip.setObjectName("usrStatSpecialists")
+        controls_row.addWidget(self.specialists_chip)
+
+        self.viewer_chip = QLabel("Viewer 0")
+        self.viewer_chip.setObjectName("usrStatViewer")
+        controls_row.addWidget(self.viewer_chip)
+
+        main_layout.addLayout(controls_row)
+
         # â”€â”€ Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         grid = QGridLayout()
         grid.setSpacing(16)
@@ -526,18 +700,20 @@ class UsersPage(QWidget):
         table_vbox = QVBoxLayout(self._usr_table_group)
         table_vbox.setSpacing(8)
 
-        self.users_table = QTableWidget(0, 4)
-        self.users_table.setHorizontalHeaderLabels(["Name", "Username", "Role", "Status"])
+        self.users_table = QTableWidget(0, 3)
+        self.users_table.setObjectName("usrUsersTable")
+        self.users_table.setHorizontalHeaderLabels(["Name", "Username", "Role"])
         self.users_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.users_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.users_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.users_table.verticalHeader().setVisible(False)
-        self.users_table.setAlternatingRowColors(False)
-        self.users_table.setShowGrid(False)
+        self.users_table.setAlternatingRowColors(True)
+        self.users_table.setShowGrid(True)
+        self.users_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.users_table.customContextMenuRequested.connect(self._open_user_context_menu)
         self.users_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.users_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.users_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.users_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.users_table.setMinimumHeight(240)
         table_vbox.addWidget(self.users_table)
 
@@ -562,6 +738,7 @@ class UsersPage(QWidget):
         self._usr_log_group = QGroupBox("Activity Log")
         log_vbox = QVBoxLayout(self._usr_log_group)
         self.activity_log = QTableWidget(0, 3)
+        self.activity_log.setObjectName("usrActivityTable")
         self.activity_log.setHorizontalHeaderLabels(["User", "Action", "Time"])
         self.activity_log.setSelectionMode(QAbstractItemView.NoSelection)
         self.activity_log.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -594,6 +771,30 @@ class UsersPage(QWidget):
             f"color:{color};font-size:12px;font-weight:600;padding:2px 0;"
         )
         self.status_label.setText(f"{icon}  {message}")
+
+    def show_notification(self, message: str):
+        self.notify_text.setText(message)
+        self.notify_bar.show()
+
+    def _open_user_context_menu(self, pos):
+        item = self.users_table.itemAt(pos)
+        if item is None:
+            return
+        self.users_table.selectRow(item.row())
+
+        menu = QMenu(self)
+        change_role_action = menu.addAction("Change Role")
+        reset_password_action = menu.addAction("Reset Password")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete User")
+
+        chosen = menu.exec(self.users_table.viewport().mapToGlobal(pos))
+        if chosen == change_role_action:
+            self.change_selected_role()
+        elif chosen == reset_password_action:
+            self.reset_selected_password()
+        elif chosen == delete_action:
+            self.delete_user()
 
     def _actor_context(self):
         parent_app = getattr(self, "parent_app", None)
@@ -633,9 +834,44 @@ class UsersPage(QWidget):
         app_stylesheet = app.styleSheet() if app else ""
         dark_mode = "#1e1e2e" in app_stylesheet
         role_colors = _ROLE_COLORS_DARK if dark_mode else _ROLE_COLORS
-        n = len(users)
-        self.count_label.setText(f"{n} user{'s' if n != 1 else ''}")
+
+        total_count = len(users)
+        admin_count = sum(1 for user in users if user.get("role") == "admin")
+        clinician_count = sum(1 for user in users if user.get("role") == "clinician")
+        viewer_count = sum(1 for user in users if user.get("role") == "viewer")
+
+        if hasattr(self, "total_chip"):
+            self.total_chip.setText(f"Total {total_count}")
+            self.admin_chip.setText(f"Admin {admin_count}")
+            self.specialists_chip.setText(f"Specialists {clinician_count}")
+            self.viewer_chip.setText(f"Viewer {viewer_count}")
+
+        query = ""
+        if hasattr(self, "search_input"):
+            query = self.search_input.text().strip().lower()
+
+        filtered_users = []
         for user in users:
+            role = str(user.get("role") or "")
+            specialization = str(user.get("specialization") or "")
+            haystack = " ".join(
+                [
+                    str(user.get("full_name") or ""),
+                    str(user.get("display_name") or ""),
+                    str(user.get("username") or ""),
+                    str(user.get("contact") or ""),
+                    role,
+                    specialization,
+                ]
+            ).lower()
+            if query and query not in haystack:
+                continue
+            filtered_users.append(user)
+
+        shown = len(filtered_users)
+        self.count_label.setText(f"Showing {shown} of {total_count} users")
+
+        for user in filtered_users:
             row = self.users_table.rowCount()
             self.users_table.insertRow(row)
 
@@ -645,29 +881,19 @@ class UsersPage(QWidget):
             username_item.setFlags(username_item.flags() & ~Qt.ItemIsEditable)
 
             role = user["role"]
-            role_item = QTableWidgetItem(f"  {role}  ")
+            specialization = str(user.get("specialization") or "").strip()
+            display_role = specialization if role == "clinician" and specialization else role
+            role_item = QTableWidgetItem(f"  {display_role}  ")
             role_item.setFlags(role_item.flags() & ~Qt.ItemIsEditable)
             role_item.setTextAlignment(Qt.AlignCenter)
+            role_item.setData(Qt.UserRole, role)
             fg, bg = role_colors.get(role, ("#212529", "#f8f9fa"))
             role_item.setForeground(QColor(fg))
             role_item.setBackground(QColor(bg))
 
-            status_item = QTableWidgetItem("Active")
-            status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
-            status_item.setTextAlignment(Qt.AlignCenter)
-            status_item.setForeground(QColor("#198754"))
-
             self.users_table.setItem(row, 0, name_item)
             self.users_table.setItem(row, 1, username_item)
             self.users_table.setItem(row, 2, role_item)
-            self.users_table.setItem(row, 3, status_item)
-
-            role_badge = QLabel(role)
-            role_badge.setAlignment(Qt.AlignCenter)
-            role_badge.setStyleSheet(
-                f"color:{fg}; background:{bg}; border-radius:6px; padding:4px 8px; font-weight:600;"
-            )
-            self.users_table.setCellWidget(row, 2, role_badge)
         self.users_table.resizeRowsToContents()
 
     # â”€â”€ CRUD Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -684,7 +910,7 @@ class UsersPage(QWidget):
             return
 
         username = username_item.text()
-        role = role_item.text().strip()
+        role = str(role_item.data(Qt.UserRole) or role_item.text().strip())
         current_username, current_role = self._actor_context()
 
         if role == "admin" and current_role == "admin" and username != current_username:
@@ -732,7 +958,7 @@ class UsersPage(QWidget):
             return
 
         username = username_item.text()
-        current_role_val = role_item.text().strip()
+        current_role_val = str(role_item.data(Qt.UserRole) or role_item.text().strip())
 
         dlg = ChangeRoleDialog(username, current_role_val, parent=self)
         if dlg.exec() != QDialog.Accepted:

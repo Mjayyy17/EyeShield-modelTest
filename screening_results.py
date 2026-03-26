@@ -372,7 +372,7 @@ class ResultsWindow(QWidget):
         reco_layout.setSpacing(6)
         reco_title = QLabel("RECOMMENDATION")
         reco_title.setObjectName("resultStatTitle")
-        self.recommendation_value = QLabel("Consult clinician")
+        self.recommendation_value = QLabel("Consult eye care specialist")
         self.recommendation_value.setObjectName("resultStatValue")
         self.recommendation_value.setWordWrap(True)
         self.recommendation_badge = QLabel("Routine follow-up")
@@ -450,7 +450,7 @@ class ResultsWindow(QWidget):
         self.summary_line_2.setWordWrap(True)
         explanation_layout.addWidget(self.summary_line_2)
 
-        self.summary_line_3 = QLabel("Model uncertainty note: calibrate with clinician review")
+        self.summary_line_3 = QLabel("Model uncertainty note: calibrate with specialist review")
         self.summary_line_3.setObjectName("summaryRowWarn")
         self.summary_line_3.setWordWrap(True)
         explanation_layout.addWidget(self.summary_line_3)
@@ -893,7 +893,7 @@ class ResultsWindow(QWidget):
         self.uncertainty_bar.setValue(int(round(uncertainty_pct * 10)))
 
         # Grade-specific recommendation
-        recommendation = DR_RECOMMENDATIONS.get(result_class, "Consult a clinician")
+        recommendation = DR_RECOMMENDATIONS.get(result_class, "Consult an eye care specialist")
         if is_loading:
             recommendation = "—"
         self.recommendation_value.setText(recommendation)
@@ -955,7 +955,7 @@ class ResultsWindow(QWidget):
             )
             self.summary_line_3.setText(
                 f"■ Model uncertainty note: clinical review is advised (uncertainty {self._format_percent(uncertainty_pct)}); "
-                "annual screening recommended unless clinician suggests shorter follow-up"
+                "annual screening recommended unless specialist suggests shorter follow-up"
             )
             self.explanation.setText(_generate_explanation(result_class, confidence_text, patient_data))
 
@@ -1227,7 +1227,7 @@ class ResultsWindow(QWidget):
         }
         grade_bg = grade_bg_map.get(result_raw, "#f3f4f6")
 
-        recommendation = escape(DR_RECOMMENDATIONS.get(result_raw, "Consult a qualified clinician"))
+        recommendation = escape(DR_RECOMMENDATIONS.get(result_raw, "Consult a qualified ophthalmologist"))
 
         explanation_text = (self.explanation.text() or "").strip()
         if explanation_text:
@@ -1258,10 +1258,16 @@ class ResultsWindow(QWidget):
             explanation_html = escape(summary_map.get(result_raw, "Please consult a qualified ophthalmologist."))
 
         report_date = datetime.now().strftime("%B %d, %Y %I:%M %p")
-        screened_by_raw = str(
+        screened_by_name = str(
             os.environ.get("EYESHIELD_CURRENT_NAME", "")
             or os.environ.get("EYESHIELD_CURRENT_USER", "")
         ).strip()
+        screened_by_title = str(os.environ.get("EYESHIELD_CURRENT_TITLE", "")).strip()
+        screened_by_raw = (
+            f"{screened_by_name} ({screened_by_title})"
+            if screened_by_name and screened_by_title
+            else screened_by_name
+        )
         screened_by = escape(screened_by_raw) if screened_by_raw else "&mdash;"
 
         duration_disp = f"{escape(str(duration_val))} year(s)" if duration_val and duration_val > 0 else "&mdash;"
@@ -1373,7 +1379,7 @@ class ResultsWindow(QWidget):
         gc = _COL.get(result_raw, "#1e3a5f")
         gbg = _BG.get(result_raw, "#f8faff")
         gb = _BORDER.get(result_raw, "#2563eb")
-        rec = _REC.get(result_raw, "Consult a qualified clinician")
+        rec = _REC.get(result_raw, "Consult a qualified ophthalmologist")
         summary = _SUM.get(result_raw, "Please consult a qualified ophthalmologist.")
         conf_display = confidence_display
 
@@ -1581,7 +1587,7 @@ img{{max-width:100%;height:auto;}}
 <td valign="top" style="font-size:8pt;color:#9ca3af;line-height:1.8;">
     <span style="color:#6b7280;font-weight:600;">Screened by:</span>&nbsp;{screened_by}&nbsp;&nbsp;
     <span style="color:#6b7280;font-weight:600;">Generated:</span>&nbsp;{report_date}<br>
-    <i>This report is AI-assisted and does not replace the judgment of a licensed clinician.
+    <i>This report is AI-assisted and does not replace the judgment of a licensed eye care professional.
     All findings must be reviewed and confirmed by a qualified healthcare professional
     before any clinical action is taken.</i>
 </td>

@@ -171,11 +171,13 @@ class ArchivedRecordsDialog(QDialog):
 class ReportsPage(QWidget):
     """Reports page with local offline statistics."""
 
-    def __init__(self, username: str = "", role: str = "clinician", display_name: str = ""):
+    def __init__(self, username: str = "", role: str = "clinician", display_name: str = "", specialization: str = ""):
         super().__init__()
         self.username = username or os.environ.get("EYESHIELD_CURRENT_USER", "")
         self.display_name = display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username
         self.role = role or os.environ.get("EYESHIELD_CURRENT_ROLE", "clinician")
+        self.specialization = str(specialization or os.environ.get("EYESHIELD_CURRENT_SPECIALIZATION", "")).strip()
+        self.display_title = self.specialization if self.role == "clinician" and self.specialization else self.role
         self.is_admin = self.role == "admin"
         self.records_changed_callback = None
         self.archived_records_dialog = None
@@ -504,7 +506,9 @@ class ReportsPage(QWidget):
         return success
 
     def _set_record_archive_state(self, record_id, archived: bool) -> bool:
-        actor = self.display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username
+        actor_name = self.display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username
+        actor_title = self.display_title or os.environ.get("EYESHIELD_CURRENT_TITLE", "")
+        actor = f"{actor_name} ({actor_title})" if actor_name and actor_title else actor_name
         try:
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
@@ -659,7 +663,7 @@ class ReportsPage(QWidget):
         gc  = _COL.get(result_raw, "#1e3a5f")
         gbg = _BG.get(result_raw, "#f8faff")
         gb  = _BORDER.get(result_raw, "#2563eb")
-        rec = _REC.get(result_raw, "Consult a qualified clinician")
+        rec = _REC.get(result_raw, "Consult a qualified ophthalmologist")
         summary = _SUM.get(result_raw, "Please consult a qualified ophthalmologist.")
 
         # Keep urgent cards readable if rendered in a solid red treatment.
@@ -681,9 +685,15 @@ class ReportsPage(QWidget):
             gbg = gb
 
         report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
-        screened_by_raw = str(
+        screened_by_name = str(
             self.display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username
         ).strip()
+        screened_by_title = str(self.display_title or os.environ.get("EYESHIELD_CURRENT_TITLE", "")).strip()
+        screened_by_raw = (
+            f"{screened_by_name} ({screened_by_title})"
+            if screened_by_name and screened_by_title
+            else screened_by_name
+        )
         screened_by = escape(screened_by_raw) if screened_by_raw else "&#8212;"
 
         dur_raw = str(full.get("duration") or "").strip()
@@ -935,7 +945,7 @@ img{{max-width:100%;height:auto;}}
 <td valign="top" style="font-size:8pt;color:#9ca3af;line-height:1.8;">
     <span style="color:#6b7280;font-weight:600;">Screened by:</span>&nbsp;{screened_by}&nbsp;&nbsp;
     <span style="color:#6b7280;font-weight:600;">Generated:</span>&nbsp;{report_date}<br>
-    <i>This report is AI-assisted and does not replace the judgment of a licensed clinician.
+    <i>This report is AI-assisted and does not replace the judgment of a licensed eye care professional.
     All findings must be reviewed and confirmed by a qualified healthcare professional
     before any clinical action is taken.</i>
 </td>

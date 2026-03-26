@@ -435,12 +435,26 @@ class LoginWindow(QWidget):
             self.failed_attempts = 0
             self.login_feedback.setText("")
             profile = get_user_profile(username) or {}
-            display_name = str(profile.get("full_name") or username).strip()
+            full_name = str(profile.get("full_name") or username).strip()
+            display_name = str(profile.get("display_name") or full_name or username).strip()
+            specialization = str(profile.get("specialization") or "").strip()
+            contact = str(profile.get("contact") or "").strip()
+            display_title = specialization if role == "clinician" and specialization else role
 
             os.environ["EYESHIELD_CURRENT_USER"] = username
             os.environ["EYESHIELD_CURRENT_ROLE"] = role
             os.environ["EYESHIELD_CURRENT_NAME"] = display_name
-            self.main = EyeShieldApp(username, role, display_name=display_name)
+            os.environ["EYESHIELD_CURRENT_SPECIALIZATION"] = specialization
+            os.environ["EYESHIELD_CURRENT_TITLE"] = display_title
+            os.environ["EYESHIELD_CURRENT_CONTACT"] = contact
+            self.main = EyeShieldApp(
+                username,
+                role,
+                display_name=display_name,
+                full_name=full_name,
+                specialization=specialization,
+                contact=contact,
+            )
             self.main.show()
             self.close()
         else:

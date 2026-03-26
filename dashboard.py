@@ -35,12 +35,16 @@ class EyeShieldApp(QMainWindow):
         "clinician": {0, 1, 2, 3, 5, 6},
     }
 
-    def __init__(self, username, role, display_name=None):
+    def __init__(self, username, role, display_name=None, full_name=None, specialization=None, contact=None):
         super().__init__()
 
         self.username = username
         self.role = role
+        self.full_name = str(full_name or "").strip()
         self.display_name = str(display_name or os.environ.get("EYESHIELD_CURRENT_NAME") or username).strip()
+        self.specialization = str(specialization or os.environ.get("EYESHIELD_CURRENT_SPECIALIZATION") or "").strip()
+        self.contact = str(contact or os.environ.get("EYESHIELD_CURRENT_CONTACT") or "").strip()
+        self.display_title = self.specialization if self.role == "clinician" and self.specialization else self.role
         self.allowed_pages = self._allowed_pages_for_role(role)
         self._dark_mode = False
         self._saved_styles = {}
@@ -211,6 +215,10 @@ class EyeShieldApp(QMainWindow):
             btn.setProperty("pageIndex", nav_item["page_index"])
             btn.setProperty("navKey", nav_item["label"])
             label.setProperty("pageIndex", nav_item["page_index"])
+
+            # Seed icon immediately so first paint never shows a missing nav icon.
+            self._set_button_svg_icon(btn, nav_item["icon"], "#495057", QSize(24, 24))
+
             nav_layout.addWidget(w)
             nav_layout.addStretch(1)
             nav_widgets.append(w)
@@ -224,7 +232,7 @@ class EyeShieldApp(QMainWindow):
         self._nav_label_originals = nav_label_originals
 
         # User info on the right — styled as a pill badge
-        user_info = QLabel(f"  {self.display_name}  \u2022  {self.role}  ")
+        user_info = QLabel(f"  {self.display_name}  \u2022  {self.display_title}  ")
         self.user_info_label = user_info
         user_info.setObjectName("userInfo")
         user_info.setStyleSheet(
@@ -278,7 +286,12 @@ class EyeShieldApp(QMainWindow):
         # Create main pages first so dashboard can query live data
         self.screening_page = ScreeningPage()
         self.camera_page = CameraPage()
-        self.reports_page = ReportsPage(self.username, self.role, display_name=self.display_name)
+        self.reports_page = ReportsPage(
+            self.username,
+            self.role,
+            display_name=self.display_name,
+            specialization=self.specialization,
+        )
         self.reports_page.records_changed_callback = self.refresh_dashboard
         self.users_page = UsersPage()
         self.settings_page = SettingsPage()
@@ -353,17 +366,16 @@ class EyeShieldApp(QMainWindow):
                 svg_text = f.read()
         except OSError:
             return QPixmap()
-        svg_text = svg_text.replace('stroke="currentColor"', f'stroke="{color}"')
-        svg_text = svg_text.replace('fill="currentColor"', f'fill="{color}"')
-        svg_text = svg_text.replace('stroke="black"', f'stroke="{color}"')
-        svg_text = svg_text.replace('fill="black"', f'fill="{color}"')
-        svg_text = svg_text.replace('stroke="#000"', f'stroke="{color}"')
-        svg_text = svg_text.replace('fill="#000"', f'fill="{color}"')
-        svg_text = svg_text.replace('stroke="#000000"', f'stroke="{color}"')
-        svg_text = svg_text.replace('fill="#000000"', f'fill="{color}"')
-        svg_text = svg_text.replace('stroke="#e3e3e3"', f'stroke="{color}"')
-        svg_text = svg_text.replace('fill="#e3e3e3"', f'fill="{color}"')
-        svg_text = svg_text.replace('fill="white"', 'fill="transparent"')
+
+        def _replace_paint(match: re.Match) -> str:
+            attr = match.group(1)
+            value = match.group(2)
+            if value.lower() in {"none", "transparent"}:
+                return match.group(0)
+            return f'{attr}="{color}"'
+
+        svg_text = re.sub(r'(fill|stroke)=["\']([^"\']+)["\']', _replace_paint, svg_text, flags=re.IGNORECASE)
+
         data = QByteArray(svg_text.encode("utf-8"))
         renderer = QSvgRenderer(data)
         if not renderer.isValid():
@@ -390,7 +402,9 @@ class EyeShieldApp(QMainWindow):
             return
         pixmap = self._load_svg_pixmap_colored(svg_path, color, 256)
         if pixmap.isNull():
-            button.setIcon(QIcon())
+            # Fallback to native SVG icon loading if recoloring fails.
+            button.setIcon(QIcon(svg_path))
+            button.setIconSize(size)
             return
         button.setIcon(QIcon(pixmap))
         button.setIconSize(size)

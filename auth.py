@@ -15,6 +15,7 @@ from typing import Optional
 
 DB_FILE = "users.db"
 VALID_ROLES = {"clinician", "admin", "viewer"}
+VALID_SPECIALIZATIONS = {"optometrist", "ophthalmologist"}
 ADMIN_ROLE = "admin"
 MIN_PASSWORD_LENGTH = 12
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
@@ -120,6 +121,9 @@ class UserManager:
 
     _USER_COLUMNS = {
         "full_name": "TEXT",
+        "display_name": "TEXT",
+        "contact": "TEXT",
+        "specialization": "TEXT",
     }
 
     _PATIENT_RECORD_COLUMNS = {
@@ -212,6 +216,15 @@ class UserManager:
             cur.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}")
 
         cur.execute("UPDATE users SET full_name = username WHERE full_name IS NULL OR TRIM(full_name) = ''")
+        cur.execute("UPDATE users SET display_name = full_name WHERE display_name IS NULL OR TRIM(display_name) = ''")
+        cur.execute("UPDATE users SET contact = '' WHERE contact IS NULL")
+        cur.execute(
+            """
+            UPDATE users
+            SET specialization = 'Optometrist'
+            WHERE role = 'clinician' AND (specialization IS NULL OR TRIM(specialization) = '')
+            """
+        )
 
     @staticmethod
     def _ensure_patient_record_columns(conn: sqlite3.Connection) -> None:
@@ -249,8 +262,14 @@ class UserManager:
                 continue
             username = str(user.get("username", "")).strip()
             full_name = str(user.get("full_name") or user.get("name") or username).strip()
+            display_name = str(user.get("display_name") or full_name or username).strip()
+            contact = str(user.get("contact") or "").strip()
             raw_password = str(user.get("password", ""))
             role = str(user.get("role", "clinician") or "clinician")
+            specialization = UserManager._normalize_specialization(
+                user.get("specialization"),
+                role,
+            )
             if not username or not raw_password:
                 continue
 
@@ -264,8 +283,26 @@ class UserManager:
                 password_hash = PasswordManager.hash_password(raw_password)
 
             cur.execute(
-                "INSERT INTO users (username, full_name, password_hash, role) VALUES (?, ?, ?, ?)",
-                (username, full_name or username, password_hash, role),
+                """
+                INSERT INTO users (
+                    username,
+                    full_name,
+                    display_name,
+                    contact,
+                    specialization,
+                    password_hash,
+                    role
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    username,
+                    full_name or username,
+                    display_name or full_name or username,
+                    contact,
+                    specialization,
+                    password_hash,
+                    role,
+                ),
             )
         conn.commit()
 
@@ -286,8 +323,18 @@ class UserManager:
 
         password_hash = PasswordManager.hash_password(password)
         cur.execute(
-            "INSERT INTO users (username, full_name, password_hash, role) VALUES (?, ?, ?, ?)",
-            (username, "Administrator", password_hash, "admin"),
+            """
+            INSERT INTO users (
+                username,
+                full_name,
+                display_name,
+                contact,
+                specialization,
+                password_hash,
+                role
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (username, "Administrator", "Administrator", "", "", password_hash, "admin"),
         )
         conn.commit()
 
@@ -301,6 +348,21 @@ class UserManager:
     def _normalize_role(role: str) -> Optional[str]:
         normalized_role = str(role or "clinician").strip().lower()
         return normalized_role if normalized_role in VALID_ROLES else None
+
+    @staticmethod
+    def _normalize_specialization(specialization: Optional[str], role: str) -> Optional[str]:
+        normalized_role = str(role or "").strip().lower()
+        raw = str(specialization or "").strip()
+
+        if normalized_role != "clinician":
+            return ""
+        if not raw:
+            return None
+
+        lower_value = raw.lower()
+        if lower_value not in VALID_SPECIALIZATIONS:
+            return None
+        return "Optometrist" if lower_value == "optometrist" else "Ophthalmologist"
 
     @staticmethod
     def _is_valid_username(username: str) -> bool:
@@ -367,16 +429,31 @@ class UserManager:
         password: str,
         role: str = "clinician",
         full_name: Optional[str] = None,
+        display_name: Optional[str] = None,
+        contact: Optional[str] = None,
+        specialization: Optional[str] = None,
         acting_username: Optional[str] = None,
         acting_role: Optional[str] = None,
         acting_password: Optional[str] = None,
     ) -> bool:
         """Create a new user"""
         username = username.strip()
-        display_name = str(full_name or "").strip()
+        full_name_value = str(full_name or "").strip()
+        display_name_value = str(display_name or full_name or "").strip()
+        contact_value = str(contact or "").strip()
         normalized_role = UserManager._normalize_role(role)
+        normalized_specialization = UserManager._normalize_specialization(
+            specialization,
+            normalized_role or "",
+        )
 
-        if not username or not password or not normalized_role or not display_name:
+        if not username or not password or not normalized_role:
+            return False
+        if username.lower() == password.lower():
+            return False
+        if not full_name_value or not display_name_value:
+            return False
+        if normalized_role == "clinician" and not normalized_specialization:
             return False
         if not UserManager._is_valid_username(username):
             return False
@@ -396,8 +473,26 @@ class UserManager:
         
         try:
             cur.execute(
-                "INSERT INTO users (username, full_name, password_hash, role) VALUES (?, ?, ?, ?)",
-                (username, display_name, pw_hash, normalized_role)
+                """
+                INSERT INTO users (
+                    username,
+                    full_name,
+                    display_name,
+                    contact,
+                    specialization,
+                    password_hash,
+                    role
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    username,
+                    full_name_value,
+                    display_name_value,
+                    contact_value,
+                    normalized_specialization or "",
+                    pw_hash,
+                    normalized_role,
+                )
             )
             conn.commit()
             success = True
@@ -450,7 +545,14 @@ class UserManager:
 
         conn = get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT username, full_name, role FROM users WHERE username = ?", (username,))
+        cur.execute(
+            """
+            SELECT username, full_name, display_name, contact, specialization, role
+            FROM users
+            WHERE username = ?
+            """,
+            (username,),
+        )
         row = cur.fetchone()
         conn.close()
         if not row:
@@ -458,7 +560,10 @@ class UserManager:
         return {
             "username": row[0],
             "full_name": row[1] or row[0],
-            "role": row[2],
+            "display_name": row[2] or row[1] or row[0],
+            "contact": row[3] or "",
+            "specialization": row[4] or "",
+            "role": row[5],
         }
     
     @staticmethod
@@ -467,7 +572,7 @@ class UserManager:
         conn = get_connection()
         cur = conn.cursor()
         
-        cur.execute("SELECT username, full_name, role FROM users")
+        cur.execute("SELECT username, full_name, display_name, contact, specialization, role FROM users")
         users = cur.fetchall()
         
         conn.close()
@@ -510,8 +615,18 @@ class UserManager:
                 "UPDATE users SET role = ? WHERE username = ?",
                 (normalized_role, username)
             )
+            updated_role = cur.rowcount > 0
+            if normalized_role == "clinician":
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET specialization = 'Optometrist'
+                    WHERE username = ? AND (specialization IS NULL OR TRIM(specialization) = '')
+                    """,
+                    (username,),
+                )
             conn.commit()
-            success = cur.rowcount > 0
+            success = updated_role
         except sqlite3.Error:
             success = False
         
