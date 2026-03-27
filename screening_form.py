@@ -444,6 +444,7 @@ class ScreeningPage(QWidget):
         self._last_saved_source_path = ""
         self._current_eye_saved = False
         self._first_eye_result = None
+        self._navigation_locked = False
         self._flow_guard = ScreeningFlowGuard(self)
         self._duplicate_detector = DuplicateDetector()
         self._draft_path = get_autosave_draft_path()
@@ -453,6 +454,15 @@ class ScreeningPage(QWidget):
         self.stacked_widget = QStackedWidget()
         self.init_ui()
         self._autosave_timer.start()
+
+    def is_navigation_locked(self) -> bool:
+        return bool(self._navigation_locked)
+
+    def _set_navigation_locked(self, locked: bool):
+        self._navigation_locked = bool(locked)
+        main_window = self.window()
+        if main_window is not self and hasattr(main_window, "_refresh_navigation_lock"):
+            main_window._refresh_navigation_lock()
 
     def init_ui(self):
         """Initialize the revised UI: patient info and image upload in one window, results in new window"""
@@ -633,7 +643,7 @@ class ScreeningPage(QWidget):
         left_scroll.setWidget(left_content)
 
         card1, c1 = make_card()
-        section_title(c1, "Patient Information", "scr_patient_info")
+        section_title(c1, "PATIENT INFORMATION", "scr_patient_info")
 
         self.p_id = QLineEdit()
         self.p_id.setReadOnly(True)
@@ -758,7 +768,7 @@ class ScreeningPage(QWidget):
         left_col.addWidget(card1)
 
         card2, c2 = make_card()
-        section_title(c2, "Clinical History", "scr_clinical_history")
+        section_title(c2, "CLINICAL HISTORY", "scr_clinical_history")
         self.diabetes_type = QComboBox()
         self.diabetes_type.setObjectName("diabetesTypeDropdown")
         self.diabetes_type.addItems(["Select", "Type 1", "Type 2", "Gestational", "Other"])
@@ -1586,6 +1596,7 @@ class ScreeningPage(QWidget):
         )
         self._worker.error.connect(self._on_inference_error)
         self._worker.ungradable.connect(self._on_image_ungradable)
+        self._set_navigation_locked(True)
         self._worker.start()
 
     def _set_preview_image(self, path: str):
@@ -1657,6 +1668,7 @@ class ScreeningPage(QWidget):
         )
         self._worker.error.connect(self._on_inference_error)
         self._worker.ungradable.connect(self._on_image_ungradable)
+        self._set_navigation_locked(True)
         self._worker.start()
 
     def _resolve_duplicate_patient(self):
@@ -1691,6 +1703,7 @@ class ScreeningPage(QWidget):
         )
 
     def _on_inference_done(self, label: str, conf: str, heatmap_path: str, eye_label: str, patient_data: dict | None = None):
+        self._set_navigation_locked(False)
         self.last_result_class = label
         self.last_result_conf = conf
         if eye_label:
@@ -1714,6 +1727,7 @@ class ScreeningPage(QWidget):
         )
 
     def _on_inference_error(self, message: str):
+        self._set_navigation_locked(False)
         self.btn_analyze.setEnabled(True)
         self.stacked_widget.setCurrentIndex(0)
         write_activity("ERROR", "SCREENING_INFERENCE_FAILED", message)
@@ -1724,6 +1738,7 @@ class ScreeningPage(QWidget):
 
     def _on_image_ungradable(self, message: str):
         """Called when the quality check rejects the uploaded image."""
+        self._set_navigation_locked(False)
         self.btn_analyze.setEnabled(True)
         self.stacked_widget.setCurrentIndex(0)
         write_activity("WARNING", "SCREENING_UNGRADABLE", message)
@@ -1947,6 +1962,97 @@ class ScreeningPage(QWidget):
         image_saved_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return rel_source, rel_heatmap, image_sha256, image_saved_at
 
+    def _find_existing_eye_record(self, patient_id: str, eye_label: str):
+        patient_id = str(patient_id or "").strip()
+        eye_label = str(eye_label or "").strip()
+        if not patient_id or not eye_label:
+            return None
+
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    SELECT id, screened_at
+                    FROM patient_records
+                    WHERE patient_id = ? AND lower(eyes) = lower(?) AND archived_at IS NULL
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (patient_id, eye_label),
+                )
+            except sqlite3.Error:
+                cur.execute(
+                    """
+                    SELECT id, screened_at
+                    FROM patient_records
+                    WHERE patient_id = ? AND lower(eyes) = lower(?)
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (patient_id, eye_label),
+                )
+            row = cur.fetchone()
+            conn.close()
+        except Exception:
+            return None
+
+        if not row:
+            return None
+        return {"id": int(row[0]), "screened_at": str(row[1] or "").strip()}
+
+    def _prompt_duplicate_eye_action(self, patient_id: str, eye_label: str) -> str:
+        box = QMessageBox(self)
+        box.setWindowTitle("Existing Eye Record")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(
+            f"A saved <b>{eye_label}</b> record already exists for patient ID <b>{patient_id}</b>."
+        )
+        box.setInformativeText(
+            "Choose Replace to overwrite that eye result, or Save as New Session to create a new patient ID."
+        )
+        replace_btn = box.addButton("Replace Existing", QMessageBox.ButtonRole.AcceptRole)
+        new_session_btn = box.addButton("Save as New Session", QMessageBox.ButtonRole.ActionRole)
+        cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == replace_btn:
+            return "replace"
+        if clicked == new_session_btn:
+            return "new_session"
+        return "cancel"
+
+    def _update_screening_record(self, record_id: int, patient_data) -> bool:
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE patient_records SET
+                    patient_id = ?, name = ?, birthdate = ?, age = ?, sex = ?, contact = ?, eyes = ?,
+                    diabetes_type = ?, duration = ?, hba1c = ?, prev_treatment = ?, notes = ?,
+                    result = ?, confidence = ?, screened_at = ?,
+                    visual_acuity_left = ?, visual_acuity_right = ?,
+                    blood_pressure_systolic = ?, blood_pressure_diastolic = ?,
+                    fasting_blood_sugar = ?, random_blood_sugar = ?,
+                    diabetes_diagnosis_date = ?,
+                    symptom_blurred_vision = ?, symptom_floaters = ?,
+                    symptom_flashes = ?, symptom_vision_loss = ?,
+                    source_image_path = ?, heatmap_image_path = ?,
+                    image_sha256 = ?, image_saved_at = ?
+                WHERE id = ?
+                """,
+                [*patient_data, int(record_id)],
+            )
+            conn.commit()
+            updated = cur.rowcount > 0
+            conn.close()
+            return updated
+        except Exception:
+            return False
+
     def save_screening(self, reset_after=True):
         if not self._validate_patient_basics():
             return {"status": "invalid"}
@@ -1998,6 +2104,53 @@ class ScreeningPage(QWidget):
         if symptom_other:
             notes = (notes + f"\nOther symptom: {symptom_other}").strip() if notes else f"Other symptom: {symptom_other}"
 
+        initial_signature_payload = {
+            "pid": pid,
+            "name": name,
+            "dob": dob_str,
+            "age": age,
+            "sex": sex,
+            "contact": contact,
+            "eye": eye,
+            "diabetes_type": diabetes_type,
+            "diag_date": diag_date_str,
+            "duration": duration,
+            "hba1c": hba1c,
+            "prev_treatment": prev_treatment,
+            "notes": notes,
+            "result": result,
+            "confidence": confidence,
+            "va_left": va_left,
+            "va_right": va_right,
+            "bp_sys": bp_sys,
+            "bp_dia": bp_dia,
+            "fbs": fbs_val,
+            "rbs": rbs_val,
+            "symptom_blurred": symptom_blurred_flag,
+            "symptom_floaters": symptom_floaters_flag,
+            "symptom_flashes": symptom_flashes_flag,
+            "symptom_vision_loss": symptom_vision_loss_flag,
+            "image": str(self.current_image or ""),
+            "heatmap": str(getattr(self.results_page, "_current_heatmap_path", "") or ""),
+        }
+        initial_signature = hashlib.sha256(
+            json.dumps(initial_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        if self._current_eye_saved and initial_signature == self._last_saved_signature:
+            return {"status": "unchanged"}
+
+        replace_record_id = None
+        existing_eye_record = self._find_existing_eye_record(pid, eye)
+        if existing_eye_record:
+            duplicate_action = self._prompt_duplicate_eye_action(pid, eye)
+            if duplicate_action == "cancel":
+                return {"status": "cancelled"}
+            if duplicate_action == "replace":
+                replace_record_id = int(existing_eye_record["id"])
+            elif duplicate_action == "new_session":
+                pid = self.generate_patient_id()
+                self._first_eye_result = None
+
         pre_signature_payload = {
             "pid": pid,
             "name": name,
@@ -2030,8 +2183,6 @@ class ScreeningPage(QWidget):
         pre_signature = hashlib.sha256(
             json.dumps(pre_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
         ).hexdigest()
-        if self._current_eye_saved and pre_signature == self._last_saved_signature:
-            return {"status": "unchanged"}
 
         try:
             source_image_path, heatmap_image_path, image_sha256, image_saved_at = self._persist_screening_assets(
@@ -2079,9 +2230,15 @@ class ScreeningPage(QWidget):
             image_saved_at,
         ]
 
-        if not self._save_screening_to_db(patient_data):
-            QMessageBox.warning(self, "Save Failed", "Unable to save screening record. Please try again.")
-            write_activity("ERROR", "SAVE_FAILED", "Database insert failed")
+        save_ok = (
+            self._update_screening_record(replace_record_id, patient_data)
+            if replace_record_id is not None
+            else self._save_screening_to_db(patient_data)
+        )
+        if not save_ok:
+            action_label = "update" if replace_record_id is not None else "save"
+            QMessageBox.warning(self, "Save Failed", f"Unable to {action_label} screening record. Please try again.")
+            write_activity("ERROR", "SAVE_FAILED", f"Database {action_label} failed")
             return {"status": "error", "error": "Database insert failed"}
 
         self._current_eye_saved = True
@@ -2091,7 +2248,7 @@ class ScreeningPage(QWidget):
         self.discard_draft_session()
         write_activity(
             "INFO",
-            "RESULT_SAVED",
+            "RESULT_REPLACED" if replace_record_id is not None else "RESULT_SAVED",
             f"patient_id={pid}; eye={eye}; path={self._last_saved_source_path}; result={result}; confidence={confidence}",
         )
         if reset_after:
@@ -2100,11 +2257,15 @@ class ScreeningPage(QWidget):
             QMessageBox.information(
                 self,
                 "Saved to Records",
-                f"Patient screening saved to records.\n\nPatient ID: {pid}\nName: {saved_name}\nEye: {saved_eye}",
+                (
+                    "Patient screening updated in records.\n\n"
+                    if replace_record_id is not None else
+                    "Patient screening saved to records.\n\n"
+                ) + f"Patient ID: {pid}\nName: {saved_name}\nEye: {saved_eye}",
             )
             self.reset_screening()
             return {
-                "status": "saved",
+                "status": "replaced" if replace_record_id is not None else "saved",
                 "path": self._last_saved_source_path,
                 "saved_at": self._last_saved_at,
             }
@@ -2127,7 +2288,7 @@ class ScreeningPage(QWidget):
                 box.setWindowTitle("Screen Other Eye")
                 box.setIcon(QMessageBox.Icon.Question)
                 box.setText(
-                    f"<b>{eye_label}</b> screening saved successfully.\n\n"
+                    f"<b>{eye_label}</b> screening {'updated' if replace_record_id is not None else 'saved'} successfully.\n\n"
                     f"Would you like to screen the <b>{opposite_eye}</b> now?"
                 )
                 continue_btn = box.addButton("Continue", QMessageBox.ButtonRole.AcceptRole)
@@ -2136,7 +2297,7 @@ class ScreeningPage(QWidget):
                 if box.clickedButton() == continue_btn:
                     self.screen_other_eye()
             return {
-                "status": "saved",
+                "status": "replaced" if replace_record_id is not None else "saved",
                 "path": self._last_saved_source_path,
                 "saved_at": self._last_saved_at,
             }
@@ -2162,7 +2323,7 @@ class ScreeningPage(QWidget):
                 return
             if chosen == save_btn:
                 save_result = self.save_screening(reset_after=False)
-                if not isinstance(save_result, dict) or save_result.get("status") != "saved":
+                if not isinstance(save_result, dict) or save_result.get("status") not in {"saved", "replaced"}:
                     return  # save failed, abort
             if chosen == skip_btn:
                 write_activity("WARNING", "SCREEN_OTHER_EYE_SKIP_SAVE", f"Skipped save for {eye_label}")
