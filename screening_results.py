@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox,
     QScrollArea, QFrame, QProgressBar, QMessageBox, QFileDialog, QStyle, QProgressDialog, QApplication
 )
-from PySide6.QtGui import QPixmap, QFont, QPainter, QColor, QIcon, QPalette
+from PySide6.QtGui import QPixmap, QFont, QPainter, QColor, QIcon, QPalette, QImage
 from PySide6.QtCore import Qt, QSize, QEvent, QTimer, QByteArray, QBuffer, QIODevice
 
 from screening_styles import DR_COLORS, DR_RECOMMENDATIONS, PROGRESSBAR_STYLE
@@ -985,22 +985,45 @@ class ResultsWindow(QWidget):
             self.bilateral_second_saved_lbl.setObjectName("successLabel")
 
     def go_back(self):
+        """Go back to screening form - clears all fields with confirmation."""
         if not self.parent_page:
             return
         page = self.parent_page
+        
+        # Always show warning before going back (data will be cleared)
+        box = QMessageBox(self)
+        box.setWindowTitle("Back to Screening")
+        box.setIcon(QMessageBox.Icon.Warning)
+        
         if not getattr(page, "_current_eye_saved", True):
-            box = QMessageBox(self)
-            box.setWindowTitle("Back to Screening")
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setText("Unsaved changes will be lost. Are you sure you want to go back?")
-            stay_btn = box.addButton("Stay", QMessageBox.ButtonRole.RejectRole)
-            go_back_btn = box.addButton("Go Back", QMessageBox.ButtonRole.DestructiveRole)
-            box.setDefaultButton(stay_btn)
-            box.exec()
-            if box.clickedButton() != go_back_btn:
-                write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "Stay")
-                return
-            write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "Go Back")
+            # Unsaved results
+            box.setText(
+                "<b>Unsaved screening results will be lost.</b><br><br>"
+                "Going back will clear all patient data and start a new screening.<br><br>"
+                "Are you sure you want to go back?"
+            )
+        else:
+            # Saved results but still warns about clearing
+            box.setText(
+                "Going back will clear all patient data and start a new screening.<br><br>"
+                "Are you sure you want to go back?"
+            )
+        
+        stay_btn = box.addButton("Stay on Results", QMessageBox.ButtonRole.RejectRole)
+        clear_btn = box.addButton("Clear and Go Back", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(stay_btn)
+        box.exec()
+        
+        if box.clickedButton() != clear_btn:
+            write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "User chose to stay")
+            return
+        
+        write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "User confirmed clear and go back")
+        
+        # Clear all fields and reset
+        page.reset_screening()
+        
+        # Switch back to intake form
         if hasattr(page, "stacked_widget"):
             page.stacked_widget.setCurrentIndex(0)
 
@@ -1010,7 +1033,7 @@ class ResultsWindow(QWidget):
 
         self._set_save_state("writing", "Saving to local records...")
         QApplication.processEvents()
-        result = self.parent_page.save_screening(reset_after=True)
+        result = self.parent_page.save_screening(reset_after=False)  # Changed to False - don't auto-reset
 
         if not isinstance(result, dict):
             self._set_save_state("failed", "Save failed due to an unexpected response.")
@@ -1168,6 +1191,7 @@ class ResultsWindow(QWidget):
         sex = pp.p_sex.currentText() if pp and hasattr(pp, "p_sex") else ""
         contact = pp.p_contact.text().strip() if pp and hasattr(pp, "p_contact") else ""
         diabetes_type = pp.diabetes_type.currentText() if pp and hasattr(pp, "diabetes_type") else ""
+        diabetes_diagnosis_date = pp.diabetes_diagnosis_date.text().strip() if pp and hasattr(pp, "diabetes_diagnosis_date") else ""
         duration_val = pp.diabetes_duration.value() if pp and hasattr(pp, "diabetes_duration") else 0
         hba1c_num = pp.hba1c.value() if pp and hasattr(pp, "hba1c") else 0.0
         prev_tx = "Yes" if pp and hasattr(pp, "prev_treatment") and pp.prev_treatment.isChecked() else "No"
@@ -1180,6 +1204,13 @@ class ResultsWindow(QWidget):
         fbs_val = str(pp.fbs.value()) if pp and hasattr(pp, "fbs") and pp.fbs.value() > 0 else ""
         rbs_val = str(pp.rbs.value()) if pp and hasattr(pp, "rbs") and pp.rbs.value() > 0 else ""
 
+        # Phase 1 additions
+        height_val = str(pp.height.value()) if pp and hasattr(pp, "height") and pp.height.value() > 0 else ""
+        weight_val = str(pp.weight.value()) if pp and hasattr(pp, "weight") and pp.weight.value() > 0 else ""
+        bmi_val = str(pp.bmi.value()) if pp and hasattr(pp, "bmi") and pp.bmi.value() > 0 else ""
+        treatment_regimen = pp.treatment_regimen.currentText() if pp and hasattr(pp, "treatment_regimen") else ""
+        prev_dr_stage = pp.prev_dr_stage.currentText() if pp and hasattr(pp, "prev_dr_stage") else ""
+
         # Collect symptoms for pill display
         symptoms = []
         if pp:
@@ -1191,6 +1222,10 @@ class ResultsWindow(QWidget):
                 symptoms.append("Flashes")
             if hasattr(pp, "symptom_vision_loss") and pp.symptom_vision_loss.isChecked():
                 symptoms.append("Vision Loss")
+            # Other symptoms
+            symptom_other_val = pp.symptom_other.text().strip() if hasattr(pp, "symptom_other") else ""
+            if symptom_other_val:
+                symptoms.append(symptom_other_val)
 
         # Helpers
         def esc(value) -> str:
@@ -1282,6 +1317,35 @@ class ResultsWindow(QWidget):
         fbs_disp = f"{escape(fbs_val)} mg/dL" if fbs_val else "&mdash;"
         rbs_disp = f"{escape(rbs_val)} mg/dL" if rbs_val else "&mdash;"
 
+        # Phase 1 display variables
+        height_disp = f"{escape(height_val)} cm" if height_val else "&mdash;"
+        weight_disp = f"{escape(weight_val)} kg" if weight_val else "&mdash;"
+        
+        # BMI with classification
+        def get_bmi_category(bmi_value: str) -> tuple:
+            """Return (category, color) based on WHO BMI classification."""
+            try:
+                bmi = float(bmi_value)
+                if bmi < 18.5:
+                    return ("Underweight", "#ea580c")  # Orange
+                elif bmi < 25.0:
+                    return ("Normal", "#16a34a")  # Green
+                elif bmi < 30.0:
+                    return ("Overweight", "#d97706")  # Amber
+                else:
+                    return ("Obese", "#dc2626")  # Red
+            except (ValueError, TypeError):
+                return ("", "#6b7280")
+        
+        if bmi_val:
+            bmi_category, bmi_color = get_bmi_category(bmi_val)
+            bmi_disp = f'{escape(bmi_val)} <span style="color:{bmi_color};font-weight:600;">({bmi_category})</span>'
+        else:
+            bmi_disp = "&mdash;"
+        
+        treatment_disp = esc_or_dash(treatment_regimen)
+        prev_dr_disp = esc_or_dash(prev_dr_stage)
+
         symptom_html = (
             " ".join(f'<span class="symptom-pill">{escape(s)}</span>' for s in symptoms)
             if symptoms
@@ -1303,7 +1367,8 @@ class ResultsWindow(QWidget):
             except OSError:
                 return ""
 
-        def build_embedded_image_uri(path_value: str, width: int = 150, height: int = 150) -> str:
+        def build_embedded_image_uri(path_value: str, width: int = 200, height: int = 200) -> str:
+            """Build embedded base64 image URI with proper sizing"""
             resolved = resolve_image_path(path_value)
             if not resolved:
                 return ""
@@ -1312,6 +1377,7 @@ class ResultsWindow(QWidget):
             if src.isNull():
                 return ""
 
+            # Scale to fit within bounds while maintaining aspect ratio
             fitted = src.scaled(
                 width,
                 height,
@@ -1319,12 +1385,11 @@ class ResultsWindow(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
 
-            canvas = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            # Create canvas with white background
+            canvas = QImage(fitted.width(), fitted.height(), QImage.Format.Format_ARGB32_Premultiplied)
             canvas.fill(QColor("#ffffff"))
             painter = QPainter(canvas)
-            x = (width - fitted.width()) // 2
-            y = (height - fitted.height()) // 2
-            painter.drawImage(x, y, fitted)
+            painter.drawImage(0, 0, fitted)
             painter.end()
 
             ba = QByteArray()
@@ -1337,8 +1402,8 @@ class ResultsWindow(QWidget):
             b64 = bytes(ba.toBase64()).decode("ascii")
             return f"data:image/png;base64,{b64}"
 
-        source_image_uri = build_embedded_image_uri(self._current_image_path)
-        heatmap_image_uri = build_embedded_image_uri(self._current_heatmap_path)
+        source_image_uri = build_embedded_image_uri(self._current_image_path, 280, 280)
+        heatmap_image_uri = build_embedded_image_uri(self._current_heatmap_path, 280, 280)
 
         # Report-tab-matching palette and structure
         _COL = {
@@ -1402,204 +1467,221 @@ class ResultsWindow(QWidget):
 
         def sec(title):
             return (
-                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 8px;">'
-                f'<tr>'
-                f'<td width="3" bgcolor="#2563eb" style="border-radius:2px;">&nbsp;</td>'
-                f'<td width="10">&nbsp;</td>'
-                f'<td style="font-size:8pt;font-weight:bold;color:#374151;letter-spacing:1.5px;white-space:nowrap;text-transform:uppercase;">{title}</td>'
-                f'<td width="14">&nbsp;</td>'
-                f'<td style="border-bottom:1px solid #e5e7eb;">&nbsp;</td>'
-                f'</tr></table>'
+                f'<div style="margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid #1f2937;">'
+                f'<span style="font-size:9pt;font-weight:700;color:#1f2937;letter-spacing:1.2px;text-transform:uppercase;">{title}</span>'
+                f'</div>'
             )
 
-        def img_cell(label_text, caption_text, placeholder_text, image_uri: str):
-            if image_uri:
-                media = (
-                    f'<table cellpadding="0" cellspacing="0" '
-                    f'style="width:150px;background:#ffffff;border-radius:8px;overflow:hidden;">'
-                    f'<tr><td align="center" valign="middle" style="padding:0;">'
-                    f'<img src="{image_uri}" width="150" height="150" style="width:150px;height:150px;display:block;border:0;" />'
-                    f'</td></tr></table>'
-                )
-            else:
-                media = (
-                    f'<table cellpadding="0" cellspacing="0" '
-                    f'style="width:150px;height:150px;background:#f3f4f6;border-radius:8px;overflow:hidden;">'
-                    f'<tr><td align="center" valign="middle" '
-                    f'style="font-size:9pt;color:#9ca3af;font-style:italic;padding:8px;">'
-                    f'{placeholder_text}'
-                    f'</td></tr></table>'
-                )
-            return (
-                f'<table width="100%" cellpadding="0" cellspacing="0" '
-                f'style="background:#fafafa;border:0.5px solid #d9dee5;border-radius:8px;overflow:hidden;">'
-                f'<tr><td style="padding:10px 12px 0;">'
-                f'<div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#185FA5;'
-                f'border-left:3px solid #185FA5;padding-left:8px;text-transform:uppercase;">{label_text}</div>'
-                f'</td></tr>'
-                f'<tr><td align="center" style="padding:8px 8px;">'
-                f'{media}'
-                f'<div style="font-size:9px;color:#666;font-style:italic;text-align:center;margin-top:6px;">{caption_text}</div>'
-                f'</td></tr>'
-                f'</table>'
-            )
-
-        def info_row(cells, bg="#ffffff"):
-            tds = "".join(
-                f'<td width="25%" bgcolor="{bg}" style="padding:10px 14px;border-right:1px solid #e5e7eb;'
-                f'border-bottom:1px solid #e5e7eb;vertical-align:top;">'
-                f'<div style="font-size:7.5pt;font-weight:bold;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">{lbl}</div>'
-                f'<div style="font-size:10pt;font-weight:600;color:#111827;line-height:1.4;">{val}</div>'
-                f'</td>'
-                for lbl, val in cells
-            )
-            return f'<tr>{tds}</tr>'
-
-        def vrow(label, value):
+        def field_row(label, value, border=True):
+            border_style = 'border-bottom:1px solid #e5e7eb;' if border else ''
             return (
                 f'<tr>'
-                f'<td style="padding:9px 14px;font-size:9.5pt;color:#6b7280;font-weight:500;border-bottom:1px solid #f3f4f6;">{label}</td>'
-                f'<td style="padding:9px 14px;font-size:9.5pt;color:#111827;font-weight:700;text-align:right;border-bottom:1px solid #f3f4f6;">{value}</td>'
+                f'<td style="padding:8px 12px;{border_style}font-size:9pt;color:#4b5563;font-weight:500;width:35%;">{label}</td>'
+                f'<td style="padding:8px 12px;{border_style}font-size:9pt;color:#111827;font-weight:600;">{value}</td>'
                 f'</tr>'
             )
 
+        def field_grid_2col(fields):
+            """Generate 2-column grid layout for fields"""
+            rows_html = ""
+            for i in range(0, len(fields), 2):
+                left_label, left_value = fields[i]
+                if i + 1 < len(fields):
+                    right_label, right_value = fields[i + 1]
+                else:
+                    right_label, right_value = "", "&mdash;"
+                
+                rows_html += (
+                    f'<tr>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:8.5pt;color:#6b7280;font-weight:500;width:18%;">{left_label}</td>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:9pt;color:#111827;font-weight:600;width:32%;">{left_value}</td>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:8.5pt;color:#6b7280;font-weight:500;width:18%;">{right_label}</td>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:9pt;color:#111827;font-weight:600;width:32%;">{right_value}</td>'
+                    f'</tr>'
+                )
+            return rows_html
+
+        # Build result badge - minimal style
+        result_label = escape(result_raw) if result_raw else "—"
+        if result_raw == "No DR":
+            result_badge_color = "#059669"  # Green
+        elif result_raw == "Mild DR":
+            result_badge_color = "#d97706"  # Amber
+        elif result_raw in ("Moderate DR", "Severe DR"):
+            result_badge_color = "#dc2626"  # Red
+        elif result_raw == "Proliferative DR":
+            result_badge_color = "#991b1b"  # Dark red
+        else:
+            result_badge_color = "#6b7280"  # Gray
+
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
-body{{font-family:'Segoe UI','Calibri',Arial,sans-serif;font-size:10pt;color:#111827;
-     background:#ffffff;margin:0;padding:0;line-height:1.5;}}
-td, div, span{{overflow-wrap:anywhere;word-break:break-word;white-space:normal;}}
-img{{max-width:100%;height:auto;}}
+body {{
+    font-family: 'Segoe UI', 'Calibri', Arial, sans-serif;
+    font-size: 10pt;
+    color: #111827;
+    background: #ffffff;
+    margin: 0;
+    padding: 0;
+    line-height: 1.5;
+}}
+table {{
+    border-collapse: collapse;
+}}
+td {{
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}}
+img {{
+    max-width: 100%;
+    height: auto;
+    display: block;
+}}
 </style></head><body>
 
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding-top:4px;">
-
-<table width="100%" cellpadding="0" cellspacing="0">
-<tr><td bgcolor="#0a2540" align="center" style="padding:12px 24px 10px;">
-    <div style="font-size:20pt;font-weight:bold;color:#ffffff;letter-spacing:1px;">Patient Record</div>
-</td></tr>
-<tr><td bgcolor="#0d2d4a">
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-        <td style="padding:8px 24px;font-size:8.5pt;color:#94a3b8;">
-            <b style="color:#cbd5e1;">Generated:</b> {report_date}
-        </td>
-        <td style="padding:8px 24px;font-size:8.5pt;color:#94a3b8;text-align:right;">
-            <b style="color:#cbd5e1;">Screened by:</b> {screened_by}
-        </td>
-    </tr>
-    </table>
-</td></tr>
-</table>
-
-<table width="100%" cellpadding="0" cellspacing="0">
-<tr><td style="padding:8px 6px 14px;">
-
-{sec("Patient Information")}
-<table width="100%" cellpadding="0" cellspacing="0"
-       style="border:1px solid #e5e7eb;border-radius:8px;border-collapse:collapse;overflow:hidden;">
-{info_row([("Full Name", esc(self._current_patient_name)), ("Date of Birth", esc(dob)), ("Age", esc(age)), ("Sex", esc(sex))], "#ffffff")}
-{info_row([("Record No.", esc(patient_id)), ("Contact", esc(contact)), ("Eye Screened", esc(self._current_eye_label or "—")), ("Screening Date", report_date)], "#f9fafb")}
-</table>
-
-{sec("Clinical History")}
-<table width="100%" cellpadding="0" cellspacing="0"
-       style="border:1px solid #e5e7eb;border-radius:8px;border-collapse:collapse;overflow:hidden;">
-{info_row([("Diabetes Type", esc(diabetes_type)), ("Duration", duration_disp), ("HbA1c", esc_or_dash(hba1c_disp)), ("Previous DR Treatment", esc(prev_tx))], "#ffffff")}
-</table>
-
-{sec("Screening Results &amp; Vital Signs")}
-<table width="100%" cellpadding="0" cellspacing="0">
+<!-- Header -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
 <tr>
-<td width="50%" valign="top" style="padding-right:12px;">
-    <table width="100%" cellpadding="0" cellspacing="0"
-           style="border:1px solid {gb};border-left:4px solid {gb};
-                  border-radius:8px;background:{gbg};">
-    <tr><td style="padding:16px 18px;">
-        <div style="display:inline-block;background:{badge_bg};color:#ffffff;font-size:7.5pt;
-                    font-weight:bold;letter-spacing:1px;text-transform:uppercase;
-                    padding:3px 9px;border-radius:4px;margin-bottom:12px;">AI Classification</div>
-        <div style="font-size:14pt;font-weight:800;color:{gc};line-height:1.35;margin-bottom:4px;">
-            {escape(result_raw) if result_raw else "&#8212;"}
+    <td style="padding:16px 20px;background:#f9fafb;border-bottom:3px solid #1f2937;">
+        <div style="font-size:18pt;font-weight:700;color:#111827;margin-bottom:4px;">DIABETIC RETINOPATHY SCREENING REPORT</div>
+        <div style="font-size:8.5pt;color:#6b7280;">
+            <b>Generated:</b> {report_date} &nbsp;|&nbsp; <b>Screened by:</b> {screened_by}
         </div>
-        <div style="font-size:9pt;color:{confidence_color};margin-bottom:12px;line-height:1.45;">Confidence: {conf_display}</div>
-        <div style="border-top:1px solid {divider_color};opacity:0.35;margin-bottom:12px;"></div>
-        <div style="font-size:7.5pt;font-weight:bold;color:{gc};letter-spacing:1px;
-                    text-transform:uppercase;margin-bottom:4px;opacity:{reco_label_opacity};">Recommendation</div>
-        <div style="font-size:9.5pt;font-weight:700;color:{gc};line-height:1.45;">&#8594;&nbsp;{rec}</div>
-    </td></tr>
-    </table>
-</td>
-<td width="50%" valign="top" style="padding-left:12px;">
-    <table width="100%" cellpadding="0" cellspacing="0"
-           style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
-    <tr><td bgcolor="#1e3a5f" style="padding:9px 14px;font-size:8pt;font-weight:bold;
-            color:#93c5fd;letter-spacing:1.2px;text-transform:uppercase;">Vital Signs</td></tr>
-    <tr><td style="padding:0;">
-        <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
-        {vrow("Blood Pressure", bp_display)}
-        {vrow("Visual Acuity (L / R)", f"{esc_or_dash(va_left)}&nbsp;/&nbsp;{esc_or_dash(va_right)}")}
-        {vrow("Fasting Blood Sugar", fbs_disp)}
-        <tr>
-        <td style="padding:9px 14px;font-size:9.5pt;color:#6b7280;font-weight:500;">Random Blood Sugar</td>
-        <td style="padding:9px 14px;font-size:9.5pt;color:#111827;font-weight:700;text-align:right;">{rbs_disp}</td>
-        </tr>
-        </table>
-    </td></tr>
-    <tr><td bgcolor="#f9fafb" style="padding:9px 14px;border-top:1px solid #e5e7eb;">
-        <div style="font-size:7.5pt;font-weight:bold;color:#9ca3af;letter-spacing:1px;
-                    text-transform:uppercase;margin-bottom:6px;">Reported Symptoms</div>
-        <div>{symptom_html}</div>
-    </td></tr>
-    </table>
-</td>
+    </td>
 </tr>
 </table>
 
-{sec("Image Results")}
 <table width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding:0 20px;">
+
+<!-- Patient Information -->
+{sec("Patient Information")}
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+{field_grid_2col([
+    ("Full Name", esc(self._current_patient_name)),
+    ("Date of Birth", esc(dob)),
+    ("Age", esc(age)),
+    ("Sex", esc(sex)),
+    ("Patient ID", esc(patient_id)),
+    ("Contact", esc(contact)),
+    ("Height", height_disp),
+    ("Weight", weight_disp),
+    ("BMI", bmi_disp),
+    ("Eye Screened", esc(self._current_eye_label or "—")),
+    ("Screening Date", report_date),
+    ("", "")
+])}
+</table>
+
+<!-- Clinical History & Diabetes Management -->
+{sec("Clinical History & Diabetes Management")}
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+{field_row("Diabetes Type", esc(diabetes_type))}
+{field_row("Diagnosis Date", esc_or_dash(diabetes_diagnosis_date))}
+{field_row("Duration", duration_disp)}
+{field_row("HbA1c", esc_or_dash(hba1c_disp))}
+{field_row("Treatment Regimen", treatment_disp)}
+{field_row("Previous DR Stage", prev_dr_disp)}
+{field_row("Previous DR Treatment", esc(prev_tx), False)}
+</table>
+
+<!-- Vital Signs -->
+{sec("Vital Signs")}
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+{field_grid_2col([
+    ("Blood Pressure", bp_display),
+    ("Fasting Blood Sugar", fbs_disp),
+    ("Visual Acuity (Left)", esc_or_dash(va_left)),
+    ("Visual Acuity (Right)", esc_or_dash(va_right)),
+    ("Random Blood Sugar", rbs_disp),
+    ("", "")
+])}
+</table>
+
+<!-- Reported Symptoms -->
+{sec("Reported Symptoms")}
+<div style="padding:10px 12px;border:1px solid #d1d5db;margin-bottom:18px;background:#fafafa;">
+    <div style="font-size:9pt;color:#374151;">{symptom_html}</div>
+</div>
+
+<!-- AI Classification Result -->
+{sec("AI Classification Result")}
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+{field_row("Classification", result_label)}
+{field_row("Confidence", conf_display, False)}
+</table>
+
+<!-- Fundus Images -->
+{sec("Fundus Images")}
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:18px;">
 <tr>
-<td width="50%" valign="top" style="padding:0 6px 0 0;">
-    {img_cell("SOURCE FUNDUS IMAGE", f"{esc(self._current_eye_label or 'Right eye')} &#8212; fundus photograph", "Source image not stored in this record", source_image_uri)}
-</td>
-<td width="50%" valign="top" style="padding:0 0 0 6px;">
-    {img_cell("GRAD-CAM++ HEATMAP", "Model attention overlay", "Heatmap not stored in this record", heatmap_image_uri)}
-</td>
+    <td width="50%" valign="top" style="padding-right:10px;">
+        <div style="border:1px solid #d1d5db;padding:12px;background:#fafafa;">
+            <div style="font-size:8pt;font-weight:700;color:#4b5563;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Source Fundus Image</div>"""
+
+        if source_image_uri:
+            html += f"""
+            <div style="text-align:center;background:#ffffff;padding:8px;border:1px solid #e5e7eb;">
+                <img src="{source_image_uri}" style="max-width:100%;max-height:220px;width:auto;height:auto;" />
+            </div>"""
+        else:
+            html += """
+            <div style="text-align:center;background:#ffffff;padding:30px;border:1px solid #e5e7eb;color:#9ca3af;font-style:italic;font-size:9pt;">
+                Image not available
+            </div>"""
+        
+        html += f"""
+            <div style="font-size:8pt;color:#6b7280;margin-top:6px;font-style:italic;">{esc(self._current_eye_label or 'Right eye')} fundus photograph</div>
+        </div>
+    </td>
+    <td width="50%" valign="top" style="padding-left:10px;">
+        <div style="border:1px solid #d1d5db;padding:12px;background:#fafafa;">
+            <div style="font-size:8pt;font-weight:700;color:#4b5563;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Grad-CAM++ Heatmap</div>"""
+        
+        if heatmap_image_uri:
+            html += f"""
+            <div style="text-align:center;background:#ffffff;padding:8px;border:1px solid #e5e7eb;">
+                <img src="{heatmap_image_uri}" style="max-width:100%;max-height:220px;width:auto;height:auto;" />
+            </div>"""
+        else:
+            html += """
+            <div style="text-align:center;background:#ffffff;padding:30px;border:1px solid #e5e7eb;color:#9ca3af;font-style:italic;font-size:9pt;">
+                Heatmap not available
+            </div>"""
+        
+        html += """
+            <div style="font-size:8pt;color:#6b7280;margin-top:6px;font-style:italic;">Model attention overlay</div>
+        </div>
+    </td>
 </tr>
 </table>
 
+<!-- Clinical Analysis -->
 {sec("Clinical Analysis")}
-<table width="100%" cellpadding="0" cellspacing="0"
-       style="border:1px solid #bfdbfe;border-left:4px solid #2563eb;
-              border-radius:0 8px 8px 0;background:#eff6ff;">
-<tr><td style="padding:14px 18px;font-size:10pt;line-height:1.75;color:#1e3a5f;">{summary}</td></tr>
-</table>
+<div style="padding:14px;border:1px solid #d1d5db;background:#f9fafb;margin-bottom:18px;">
+    <div style="font-size:8pt;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Clinical Recommendation</div>
+    <div style="font-size:9.5pt;color:#111827;font-weight:600;line-height:1.6;margin-bottom:14px;">&rarr; {rec}</div>
+    <div style="border-top:1px solid #d1d5db;padding-top:12px;margin-top:12px;">
+        <div style="font-size:9.5pt;color:#374151;line-height:1.75;">{summary}</div>
+    </div>
+</div>
 
+<!-- Clinical Notes -->
 {sec("Clinical Notes")}
-<table width="100%" cellpadding="0" cellspacing="0"
-       style="border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-<tr><td style="padding:12px 16px;font-size:10pt;color:#374151;
-            font-style:italic;line-height:1.65;min-height:40px;">{notes_disp}</td></tr>
-</table>
+<div style="padding:12px;border:1px solid #d1d5db;background:#fafafa;margin-bottom:18px;min-height:50px;">
+    <div style="font-size:9pt;color:#4b5563;font-style:italic;line-height:1.65;">{notes_disp}</div>
+</div>
 
-<table width="100%" cellpadding="0" cellspacing="0"
-       style="margin-top:24px;border-top:2px solid #e5e7eb;padding-top:14px;">
-<tr>
-<td valign="top" style="font-size:8pt;color:#9ca3af;line-height:1.8;">
-    <span style="color:#6b7280;font-weight:600;">Screened by:</span>&nbsp;{screened_by}&nbsp;&nbsp;
-    <span style="color:#6b7280;font-weight:600;">Generated:</span>&nbsp;{report_date}<br>
-    <i>This report is AI-assisted and does not replace the judgment of a licensed eye care professional.
-    All findings must be reviewed and confirmed by a qualified healthcare professional
-    before any clinical action is taken.</i>
-</td>
-<td valign="top" align="right">
-</td>
-</tr>
-</table>
+<!-- Footer / Disclaimer -->
+<div style="margin-top:24px;padding-top:14px;border-top:2px solid #e5e7eb;">
+    <div style="font-size:7.5pt;color:#9ca3af;line-height:1.8;">
+        <b>Screened by:</b> {screened_by} &nbsp;|&nbsp; <b>Generated:</b> {report_date}<br>
+        <i>This report is AI-assisted and does not replace the judgment of a licensed eye care professional. All findings must be reviewed and confirmed by a qualified healthcare professional before any clinical action is taken.</i>
+    </div>
+</div>
 
 </td></tr>
 </table>
-
-</td></tr></table>
 
 </body></html>"""
 

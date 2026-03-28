@@ -148,6 +148,11 @@ class UserManager:
         "symptom_floaters": "TEXT",
         "symptom_flashes": "TEXT",
         "symptom_vision_loss": "TEXT",
+        "height": "TEXT",
+        "weight": "TEXT",
+        "bmi": "TEXT",
+        "treatment_regimen": "TEXT",
+        "prev_dr_stage": "TEXT",
     }
     
     def __init__(self):

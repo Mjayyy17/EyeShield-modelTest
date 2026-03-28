@@ -803,38 +803,27 @@ class ReportsPage(QWidget):
         # ── grade maps ────────────────────────────────────────────────────────
         result_raw = str(full.get("result") or "").strip()
 
-        GRADE_META = {
-            "No DR":            {"color": "#166534", "bg": "#f0fdf4", "border": "#16a34a", "badge_bg": "#15803d",
-                                 "rec": "Annual screening recommended.",
-                                 "summary": "No signs of diabetic retinopathy were detected in this fundus image. Continue standard diabetes management, maintain optimal glycaemic and blood pressure control, and schedule routine annual retinal screening."},
-            "Mild DR":          {"color": "#92400e", "bg": "#fefce8", "border": "#d97706", "badge_bg": "#b45309",
-                                 "rec": "Repeat screening in 6&#8211;12 months.",
-                                 "summary": "Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. Intensify glycaemic and blood pressure management. A repeat retinal examination in 6&#8211;12 months is recommended."},
-            "Moderate DR":      {"color": "#7c2d12", "bg": "#fff7ed", "border": "#ea580c", "badge_bg": "#c2410c",
-                                 "rec": "Ophthalmology referral within 3 months.",
-                                 "summary": "Features consistent with moderate non-proliferative diabetic retinopathy (NPDR) were detected, including microaneurysms, haemorrhages, and/or hard exudates. Referral to an ophthalmologist within 3 months is advised. Reassess systemic metabolic control."},
-            "Severe DR":        {"color": "#ffffff", "bg": "#7f1d1d", "border": "#991b1b", "badge_bg": "#450a0a",
-                                 "rec": "Urgent ophthalmology referral required.",
-                                 "summary": "Findings consistent with severe non-proliferative diabetic retinopathy (NPDR) were detected. The risk of progression to proliferative disease within 12 months is high. Urgent ophthalmology referral is required."},
-            "Proliferative DR": {"color": "#ffffff", "bg": "#6b1a1a", "border": "#7f1d1d", "badge_bg": "#3b0606",
-                                 "rec": "Immediate ophthalmology referral required.",
-                                 "summary": "Proliferative diabetic retinopathy (PDR) was detected &#8212; a sight-threatening condition. Immediate ophthalmology referral is required for evaluation and potential intervention, such as laser photocoagulation or intravitreal anti-VEGF therapy."},
-        }
-        meta = GRADE_META.get(result_raw, {
-            "color": "#1e3a5f", "bg": "#f0f4ff", "border": "#2563eb", "badge_bg": "#1d4ed8",
-            "rec": "Consult a qualified ophthalmologist.",
-            "summary": "Please consult a qualified ophthalmologist for further evaluation.",
-        })
-        gc        = meta["color"]
-        gbg       = meta["bg"]
-        gb        = meta["border"]
-        rec       = meta["rec"]
-        summary   = meta["summary"]
-        badge_bg  = meta["badge_bg"]
-        is_dark_card = result_raw in ("Severe DR", "Proliferative DR")
-        divider_color = "rgba(255,255,255,0.3)" if is_dark_card else gb
+        # Recommendation and summary based on result
+        if result_raw == "No DR":
+            rec = "Annual screening recommended."
+            summary = "No signs of diabetic retinopathy were detected in this fundus image. Continue standard diabetes management, maintain optimal glycaemic and blood pressure control, and schedule routine annual retinal screening."
+        elif result_raw == "Mild DR":
+            rec = "Repeat screening in 6&#8211;12 months."
+            summary = "Early microaneurysms consistent with mild non-proliferative diabetic retinopathy (NPDR) were identified. Intensify glycaemic and blood pressure management. A repeat retinal examination in 6&#8211;12 months is recommended."
+        elif result_raw == "Moderate DR":
+            rec = "Ophthalmology referral within 3 months."
+            summary = "Features consistent with moderate non-proliferative diabetic retinopathy (NPDR) were detected, including microaneurysms, haemorrhages, and/or hard exudates. Referral to an ophthalmologist within 3 months is advised. Reassess systemic metabolic control."
+        elif result_raw == "Severe DR":
+            rec = "Urgent ophthalmology referral required."
+            summary = "Findings consistent with severe non-proliferative diabetic retinopathy (NPDR) were detected. The risk of progression to proliferative disease within 12 months is high. Urgent ophthalmology referral is required."
+        elif result_raw == "Proliferative DR":
+            rec = "Immediate ophthalmology referral required."
+            summary = "Proliferative diabetic retinopathy (PDR) was detected &#8212; a sight-threatening condition. Immediate ophthalmology referral is required for evaluation and potential intervention, such as laser photocoagulation or intravitreal anti-VEGF therapy."
+        else:
+            rec = "Consult a qualified ophthalmologist."
+            summary = "Please consult a qualified ophthalmologist for further evaluation."
 
-        report_date    = datetime.now().strftime("%B %d, %Y  %I:%M %p")
+        report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
         screening_date = str(full.get("screened_at") or "").strip() or report_date
 
         screened_by_name  = str(self.display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username).strip()
@@ -848,28 +837,62 @@ class ReportsPage(QWidget):
         notes_raw  = str(full.get("notes") or "").strip()
         notes_disp = escape(notes_raw) if notes_raw else '<span style="color:#9ca3af;font-style:italic;">None recorded</span>'
 
-        bp_s    = str(full.get("bp_systolic") or "").strip()
-        bp_d    = str(full.get("bp_diastolic") or "").strip()
+        bp_s    = str(full.get("blood_pressure_systolic") or full.get("bp_systolic") or "").strip()
+        bp_d    = str(full.get("blood_pressure_diastolic") or full.get("bp_diastolic") or "").strip()
         bp_disp = f"{escape(bp_s)}/{escape(bp_d)} mmHg" if bp_s and bp_s != "0" and bp_d and bp_d != "0" else "&#8212;"
-        va_l    = esc(full.get("va_left"))
-        va_r    = esc(full.get("va_right"))
-        fbs_r   = str(full.get("fbs") or "").strip()
-        rbs_r   = str(full.get("rbs") or "").strip()
+        va_l    = esc(full.get("visual_acuity_left") or full.get("va_left"))
+        va_r    = esc(full.get("visual_acuity_right") or full.get("va_right"))
+        fbs_r   = str(full.get("fasting_blood_sugar") or full.get("fbs") or "").strip()
+        rbs_r   = str(full.get("random_blood_sugar") or full.get("rbs") or "").strip()
         fbs_disp = f"{escape(fbs_r)} mg/dL" if fbs_r and fbs_r != "0" else "&#8212;"
         rbs_disp = f"{escape(rbs_r)} mg/dL" if rbs_r and rbs_r != "0" else "&#8212;"
 
+        # Phase 1 additions
+        height_r = str(full.get("height") or "").strip()
+        weight_r = str(full.get("weight") or "").strip()
+        bmi_r = str(full.get("bmi") or "").strip()
+        height_disp = f"{escape(height_r)} cm" if height_r and height_r != "0" else "&#8212;"
+        weight_disp = f"{escape(weight_r)} kg" if weight_r and weight_r != "0" else "&#8212;"
+        
+        # BMI with classification
+        def get_bmi_category(bmi_value: str) -> tuple:
+            """Return (category, color) based on WHO BMI classification."""
+            try:
+                bmi = float(bmi_value)
+                if bmi < 18.5:
+                    return ("Underweight", "#ea580c")
+                elif bmi < 25.0:
+                    return ("Normal", "#16a34a")
+                elif bmi < 30.0:
+                    return ("Overweight", "#d97706")
+                else:
+                    return ("Obese", "#dc2626")
+            except (ValueError, TypeError):
+                return ("", "#6b7280")
+        
+        if bmi_r and bmi_r != "0":
+            bmi_category, bmi_color = get_bmi_category(bmi_r)
+            bmi_disp = f'{escape(bmi_r)} <span style="color:{bmi_color};font-weight:600;">({bmi_category})</span>'
+        else:
+            bmi_disp = "&#8212;"
+        
+        treatment_regimen_r = str(full.get("treatment_regimen") or "").strip()
+        treatment_regimen_disp = esc(treatment_regimen_r)
+        prev_dr_stage_r = str(full.get("prev_dr_stage") or "").strip()
+        prev_dr_stage_disp = esc(prev_dr_stage_r)
+
         sym_map = [
-            ("symptom_blurred",     "Blurred Vision"),
-            ("symptom_floaters",    "Floaters"),
-            ("symptom_flashes",     "Flashes"),
+            ("symptom_blurred_vision", "Blurred Vision"),
+            ("symptom_floaters", "Floaters"),
+            ("symptom_flashes", "Flashes"),
             ("symptom_vision_loss", "Vision Loss"),
         ]
         active_syms = [lbl for k, lbl in sym_map if str(full.get(k) or "").strip().lower() in ("true", "1", "yes", "checked")]
         sym_html = (
-            "".join(
-                f'<span style="display:inline-block;background:#fee2e2;color:#991b1b;'
-                f'border:1px solid #fca5a5;border-radius:6px;padding:3px 10px;'
-                f'font-size:8pt;font-weight:700;margin:2px 4px 2px 0;">{escape(s)}</span>'
+            " ".join(
+                f'<span style="display:inline-block;background:#f3f4f6;color:#374151;'
+                f'border:1px solid #d1d5db;border-radius:4px;padding:3px 10px;'
+                f'font-size:8pt;font-weight:600;margin:2px 4px 2px 0;">{escape(s)}</span>'
                 for s in active_syms
             )
             if active_syms
@@ -892,121 +915,108 @@ class ReportsPage(QWidget):
         # ── section heading ───────────────────────────────────────────────────
         def sec(title: str) -> str:
             return (
-                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0 10px 0;">'
-                f'<tr>'
-                f'<td width="4" bgcolor="#2563eb">&nbsp;</td>'
-                f'<td width="8">&nbsp;</td>'
-                f'<td style="font-size:8pt;font-weight:bold;color:#1e3a5f;letter-spacing:1.5px;'
-                f'text-transform:uppercase;white-space:nowrap;">{title}</td>'
-                f'<td width="12">&nbsp;</td>'
-                f'<td style="border-bottom:2px solid #dbeafe;">&nbsp;</td>'
-                f'</tr>'
-                f'</table>'
+                f'<div style="margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid #1f2937;">'
+                f'<span style="font-size:9pt;font-weight:700;color:#1f2937;letter-spacing:1.2px;text-transform:uppercase;">{title}</span>'
+                f'</div>'
             )
 
         # ── info table helpers ────────────────────────────────────────────────
-        def info_cell(label: str, value: str, bg: str = "#ffffff") -> str:
-            return (
-                f'<td bgcolor="{bg}" style="padding:10px 16px;border:1px solid #e5e7eb;vertical-align:top;width:25%;">'
-                f'<div style="font-size:7pt;font-weight:bold;color:#6b7280;letter-spacing:1px;'
-                f'text-transform:uppercase;margin-bottom:5px;">{label}</div>'
-                f'<div style="font-size:10pt;font-weight:600;color:#111827;line-height:1.4;">{value}</div>'
-                f'</td>'
-            )
-
-        def info_row(cells: list, bg: str = "#ffffff") -> str:
-            return "<tr>" + "".join(info_cell(lbl, val, bg) for lbl, val in cells) + "</tr>"
-
-        # ── vitals row helper ─────────────────────────────────────────────────
-        def vrow(label: str, value: str) -> str:
+        def field_row(label: str, value: str, border: bool = True) -> str:
+            border_style = 'border-bottom:1px solid #e5e7eb;' if border else ''
             return (
                 f'<tr>'
-                f'<td style="padding:9px 14px;font-size:9pt;color:#374151;border-bottom:1px solid #f3f4f6;">{label}</td>'
-                f'<td style="padding:9px 14px;font-size:9pt;color:#111827;font-weight:700;'
-                f'text-align:right;border-bottom:1px solid #f3f4f6;">{value}</td>'
+                f'<td style="padding:8px 12px;{border_style}font-size:9pt;color:#4b5563;font-weight:500;width:35%;">{label}</td>'
+                f'<td style="padding:8px 12px;{border_style}font-size:9pt;color:#111827;font-weight:600;">{value}</td>'
                 f'</tr>'
             )
 
+        def field_grid_2col(fields: list) -> str:
+            """Generate 2-column grid layout for fields"""
+            rows_html = ""
+            for i in range(0, len(fields), 2):
+                left_label, left_value = fields[i]
+                if i + 1 < len(fields):
+                    right_label, right_value = fields[i + 1]
+                else:
+                    right_label, right_value = "", "&#8212;"
+                
+                rows_html += (
+                    f'<tr>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:8.5pt;color:#6b7280;font-weight:500;width:18%;">{left_label}</td>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:9pt;color:#111827;font-weight:600;width:32%;">{left_value}</td>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:8.5pt;color:#6b7280;font-weight:500;width:18%;">{right_label}</td>'
+                    f'<td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:9pt;color:#111827;font-weight:600;width:32%;">{right_value}</td>'
+                    f'</tr>'
+                )
+            return rows_html
+
+        # Build result badge - minimal style
+        result_label = escape(result_raw) if result_raw else "—"
+        if result_raw == "No DR":
+            result_badge_color = "#059669"
+        elif result_raw == "Mild DR":
+            result_badge_color = "#d97706"
+        elif result_raw in ("Moderate DR", "Severe DR"):
+            result_badge_color = "#dc2626"
+        elif result_raw == "Proliferative DR":
+            result_badge_color = "#991b1b"
+        else:
+            result_badge_color = "#6b7280"
+
         # ── eye result block (per-eye images + result) ────────────────────────
         def eye_result_block(eye_record: dict) -> str:
-            eye_name   = str(eye_record.get("eyes") or "Eye").strip() or "Eye"
+            eye_name = str(eye_record.get("eyes") or "Eye").strip() or "Eye"
             eye_result = str(eye_record.get("result") or "").strip()
-            eye_conf   = str(eye_record.get("confidence") or "").strip()
+            eye_conf = str(eye_record.get("confidence") or "").strip()
             if eye_conf.lower().startswith("confidence:"):
                 eye_conf = eye_conf[len("confidence:"):].strip()
-            eye_meta   = GRADE_META.get(eye_result, meta)
-            e_bg       = eye_meta["bg"]
-            e_border   = eye_meta["border"]
-            e_col      = eye_meta["color"]
 
-            src_uri  = resolve_image_uri(eye_record.get("source_image_path", ""))
+            src_uri = resolve_image_uri(eye_record.get("source_image_path", ""))
             heat_uri = resolve_image_uri(eye_record.get("heatmap_image_path", ""))
 
             def image_panel(title: str, uri: str, placeholder: str) -> str:
                 if uri:
-                    img_html = (
-                        f'<img src="{uri}" '
-                        f'style="width:100%;max-width:220px;height:auto;display:block;margin:0 auto;" />'
-                    )
+                    img_html = f'<img src="{uri}" style="width:100%;max-width:280px;height:auto;display:block;margin:0 auto;border-radius:4px;" />'
                 else:
                     img_html = (
-                        f'<table width="220" cellpadding="0" cellspacing="0" align="center">'
-                        f'<tr><td height="180" bgcolor="#f3f4f6" align="center" valign="middle" '
-                        f'style="border-radius:6px;">'
-                        f'<div style="font-size:8pt;color:#9ca3af;font-style:italic;padding:12px;">'
-                        f'{placeholder}</div>'
-                        f'</td></tr></table>'
+                        f'<div style="width:280px;height:280px;background:#f3f4f6;border-radius:4px;'
+                        f'display:flex;align-items:center;justify-content:center;margin:0 auto;">'
+                        f'<span style="font-size:8pt;color:#9ca3af;font-style:italic;text-align:center;padding:20px;">{placeholder}</span>'
+                        f'</div>'
                     )
                 return (
-                    f'<td width="50%" valign="top" style="padding:0 6px;">'
-                    f'<table width="100%" cellpadding="0" cellspacing="0" '
-                    f'style="border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">'
-                    f'<tr><td bgcolor="#1e3a5f" style="padding:7px 12px;">'
-                    f'<span style="font-size:7.5pt;font-weight:bold;color:#93c5fd;'
-                    f'letter-spacing:1px;text-transform:uppercase;">{title}</span>'
-                    f'</td></tr>'
-                    f'<tr><td align="center" style="padding:10px 8px 12px;">'
-                    f'{img_html}'
-                    f'</td></tr>'
-                    f'</table>'
+                    f'<td width="50%" valign="top" style="padding:0 8px;">'
+                    f'<div style="border:1px solid #e5e7eb;border-radius:4px;background:#fafafa;padding:8px;">'
+                    f'<div style="font-size:7.5pt;font-weight:600;color:#6b7280;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;padding:0 4px;">{title}</div>'
+                    f'<div style="padding:0;">{img_html}</div>'
+                    f'</div>'
                     f'</td>'
                 )
 
             return (
-                f'<table width="100%" cellpadding="0" cellspacing="0" '
-                f'style="border:2px solid {e_border};border-radius:10px;'
-                f'background:{e_bg};margin-bottom:14px;">'
-                # Eye header
-                f'<tr><td style="padding:12px 16px 10px;">'
+                f'<div style="border:1px solid #d1d5db;border-radius:6px;background:#ffffff;margin-bottom:14px;padding:14px 16px;">'
+                f'<div style="margin-bottom:12px;">'
                 f'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
-                f'<td>'
-                f'<div style="font-size:11pt;font-weight:800;color:#0f172a;">{escape(eye_name)}</div>'
-                f'</td>'
+                f'<td style="font-size:10pt;font-weight:700;color:#111827;">{escape(eye_name)}</td>'
                 f'<td align="right">'
-                f'<span style="background:{e_border};color:#ffffff;font-size:8pt;font-weight:700;'
-                f'padding:3px 10px;border-radius:20px;">{escape(eye_result) if eye_result else "&#8212;"}</span>'
+                f'<span style="font-size:8pt;color:#6b7280;font-weight:600;">Result:&nbsp;</span>'
+                f'<span style="font-size:9pt;font-weight:700;color:#111827;">{escape(eye_result) if eye_result else "&#8212;"}</span>'
                 f'</td>'
                 f'</tr></table>'
-                f'</td></tr>'
-                # Confidence bar
-                f'<tr><td style="padding:0 16px 10px;">'
-                f'<span style="font-size:9pt;color:{e_col};font-weight:600;">'
-                f'Confidence:&nbsp;<strong>{escape(eye_conf) if eye_conf else "&#8212;"}</strong>'
-                f'</span>'
-                f'</td></tr>'
-                # Images side by side
-                f'<tr><td style="padding:0 10px 14px;">'
+                f'</div>'
+                f'<div style="font-size:8.5pt;color:#6b7280;margin-bottom:12px;">'
+                f'Confidence: <span style="font-weight:600;color:#374151;">{escape(eye_conf) if eye_conf else "&#8212;"}</span>'
+                f'</div>'
                 f'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
-                f'{image_panel("Fundus Photograph", src_uri, "Source image not stored in this record")}'
-                f'{image_panel("AI Attention Heatmap", heat_uri, "Heatmap not stored in this record")}'
+                f'{image_panel("Fundus Photograph", src_uri, "Source image not stored")}'
+                f'{image_panel("AI Attention Heatmap", heat_uri, "Heatmap not stored")}'
                 f'</tr></table>'
-                f'</td></tr>'
-                f'</table>'
+                f'</div>'
             )
 
-        eye_names            = [str(r.get("eyes") or "").strip() for r in eye_records if str(r.get("eyes") or "").strip()]
+        eye_names = [str(r.get("eyes") or "").strip() for r in eye_records if str(r.get("eyes") or "").strip()]
         combined_eye_display = ", ".join(eye_names) if eye_names else str(full.get("eyes") or "")
-        image_results_html   = "".join(eye_result_block(r) for r in eye_records)
+        image_results_html = "".join(eye_result_block(r) for r in eye_records)
 
         # ── assemble HTML ─────────────────────────────────────────────────────
         html = f"""<!DOCTYPE html>
@@ -1030,165 +1040,98 @@ class ReportsPage(QWidget):
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════ HEADER -->
-<table width="100%" cellpadding="0" cellspacing="0">
+<!-- HEADER -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
 <tr>
-  <td bgcolor="#0a2540" style="padding:18px 28px 14px;">
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-      <td>
-        <div style="font-size:22pt;font-weight:900;color:#ffffff;letter-spacing:0.5px;">
-          Patient Screening Report
-        </div>
-        <div style="font-size:9pt;color:#94a3b8;margin-top:3px;">{escape(clinic_name)}</div>
-      </td>
-      <td align="right" valign="middle">
-        <div style="background:#1e3a5f;border-radius:8px;padding:10px 16px;display:inline-block;">
-          <div style="font-size:7.5pt;color:#93c5fd;font-weight:bold;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;">Report Generated</div>
-          <div style="font-size:9pt;color:#e2e8f0;font-weight:600;">{report_date}</div>
-        </div>
-      </td>
-    </tr>
-    </table>
+  <td style="padding:16px 20px;background:#f9fafb;border-bottom:3px solid #1f2937;">
+    <div style="font-size:18pt;font-weight:700;color:#111827;margin-bottom:4px;">DIABETIC RETINOPATHY SCREENING REPORT</div>
+    <div style="font-size:8.5pt;color:#6b7280;">
+      <b>Generated:</b> {report_date} &nbsp;|&nbsp; <b>Screened by:</b> {screened_by}
+    </div>
   </td>
 </tr>
-<tr>
-  <td bgcolor="#0d2d4a" style="padding:8px 28px;">
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td style="font-size:8.5pt;color:#94a3b8;">
-        <b style="color:#cbd5e1;">Screened by:</b>&nbsp;{screened_by}
-      </td>
-      <td align="right" style="font-size:8.5pt;color:#94a3b8;">
-        <b style="color:#cbd5e1;">Screening date:</b>&nbsp;{escape(screening_date)}
-      </td>
-    </tr></table>
-  </td>
-</tr>
-<!-- accent stripe -->
-<tr><td height="4" bgcolor="#2563eb"></td></tr>
 </table>
 
-<!-- ═══════════════════════════════════════════════════════════ BODY -->
+<!-- BODY -->
 <table width="100%" cellpadding="0" cellspacing="0">
-<tr><td style="padding:6px 20px 20px;">
+<tr><td style="padding:0 20px;">
 
   {sec("Patient Information")}
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
-  {info_row([("Full Name", esc(full.get("name"))), ("Date of Birth", esc(full.get("birthdate"))),
-             ("Age", esc(full.get("age"))), ("Sex", esc(full.get("sex")))], "#ffffff")}
-  {info_row([("Record No.", esc(full.get("patient_id"))), ("Contact", esc(full.get("contact"))),
-             ("Eye(s) Screened", esc(combined_eye_display)), ("Screening Date", esc(screening_date))], "#f8fafc")}
+  <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+  {field_grid_2col([
+      ("Full Name", esc(full.get("name"))),
+      ("Date of Birth", esc(full.get("birthdate"))),
+      ("Age", esc(full.get("age"))),
+      ("Sex", esc(full.get("sex"))),
+      ("Patient ID", esc(full.get("patient_id"))),
+      ("Contact", esc(full.get("contact"))),
+      ("Height", height_disp),
+      ("Weight", weight_disp),
+      ("BMI", bmi_disp),
+      ("Eye(s) Screened", esc(combined_eye_display)),
+      ("Screening Date", esc(screening_date)),
+      ("", "")
+  ])}
   </table>
 
+  {sec("Clinical History & Diabetes Management")}
+  <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+  {field_row("Diabetes Type", esc(full.get("diabetes_type")))}
+  {field_row("Diagnosis Date", esc(full.get("diabetes_diagnosis_date")))}
+  {field_row("Duration", dur_disp)}
+  {field_row("HbA1c", esc(full.get("hba1c")))}
+  {field_row("Treatment Regimen", treatment_regimen_disp)}
+  {field_row("Previous DR Stage", prev_dr_stage_disp)}
+  {field_row("Previous DR Treatment", esc(full.get("prev_treatment")), False)}
+  </table>
+
+  {sec("Vital Signs")}
+  <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+  {field_grid_2col([
+      ("Blood Pressure", bp_disp),
+      ("Fasting Blood Sugar", fbs_disp),
+      ("Visual Acuity (Left)", va_l),
+      ("Visual Acuity (Right)", va_r),
+      ("Random Blood Sugar", rbs_disp),
+      ("", "")
+  ])}
+  </table>
+
+  {sec("Reported Symptoms")}
+  <div style="padding:10px 12px;border:1px solid #d1d5db;margin-bottom:18px;background:#fafafa;">
+    <div style="font-size:9pt;color:#374151;">{sym_html}</div>
+  </div>
+
   {sec("AI Classification Result")}
-  <!-- Result card -->
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="border:2px solid {gb};border-radius:10px;background:{gbg};">
-  <tr>
-    <td style="padding:18px 22px;">
-      <table width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td valign="top" width="60%">
-          <!-- badge -->
-          <div style="display:inline-block;background:{badge_bg};color:#ffffff;
-                      font-size:7pt;font-weight:bold;letter-spacing:1.2px;
-                      text-transform:uppercase;padding:4px 11px;border-radius:20px;
-                      margin-bottom:10px;">AI Classification</div>
-          <!-- grade -->
-          <div style="font-size:18pt;font-weight:900;color:{gc};line-height:1.2;margin-bottom:6px;">
-            {escape(result_raw) if result_raw else "&#8212;"}
-          </div>
-          <!-- confidence -->
-          <div style="font-size:9.5pt;color:{gc};margin-bottom:14px;opacity:0.9;">
-            Confidence:&nbsp;<strong>{conf_display}</strong>
-          </div>
-          <!-- divider -->
-          <div style="border-top:1px solid {divider_color};margin-bottom:12px;"></div>
-          <!-- recommendation label -->
-          <div style="font-size:7pt;font-weight:bold;color:{gc};letter-spacing:1px;
-                      text-transform:uppercase;margin-bottom:5px;opacity:0.85;">
-            Clinical Recommendation
-          </div>
-          <div style="font-size:10pt;font-weight:700;color:{gc};line-height:1.5;">
-            &#8594;&nbsp;{rec}
-          </div>
-        </td>
-        <!-- right column: vitals card -->
-        <td valign="top" width="4%" style="padding:0 10px;"></td>
-        <td valign="top" width="36%">
-          <table width="100%" cellpadding="0" cellspacing="0"
-                 style="border:1px solid #e5e7eb;border-radius:8px;background:#ffffff;overflow:hidden;">
-          <tr><td bgcolor="#1e3a5f" style="padding:8px 14px;">
-            <span style="font-size:7.5pt;font-weight:bold;color:#93c5fd;
-                         letter-spacing:1.2px;text-transform:uppercase;">Vital Signs</span>
-          </td></tr>
-          <tr><td>
-            <table width="100%" cellpadding="0" cellspacing="0">
-            {vrow("Blood Pressure", bp_disp)}
-            {vrow("Visual Acuity L / R", f"{va_l}&nbsp;/&nbsp;{va_r}")}
-            {vrow("Fasting Blood Sugar", fbs_disp)}
-            {vrow("Random Blood Sugar", rbs_disp)}
-            </table>
-          </td></tr>
-          <tr><td bgcolor="#f9fafb" style="padding:10px 14px;border-top:1px solid #e5e7eb;">
-            <div style="font-size:7pt;font-weight:bold;color:#6b7280;letter-spacing:1px;
-                        text-transform:uppercase;margin-bottom:6px;">Reported Symptoms</div>
-            <div>{sym_html}</div>
-          </td></tr>
-          </table>
-        </td>
-      </tr></table>
-    </td>
-  </tr>
+  <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
+  {field_row("Classification", result_label)}
+  {field_row("Confidence", conf_display, False)}
   </table>
 
   {sec("Image Results")}
   {image_results_html}
 
-  {sec("Clinical History")}
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
-  {info_row([("Diabetes Type", esc(full.get("diabetes_type"))), ("Duration", dur_disp),
-             ("HbA1c", esc(full.get("hba1c"))), ("Previous DR Treatment", esc(full.get("prev_treatment")))], "#ffffff")}
-  </table>
-
   {sec("Clinical Analysis")}
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="border:1px solid #bfdbfe;border-left:5px solid #2563eb;
-                border-radius:0 8px 8px 0;background:#eff6ff;">
-  <tr><td style="padding:16px 20px;font-size:10pt;line-height:1.8;color:#1e3a5f;">
-    {summary}
-  </td></tr>
-  </table>
+  <div style="padding:14px;border:1px solid #d1d5db;background:#f9fafb;margin-bottom:18px;">
+    <div style="font-size:8pt;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Clinical Recommendation</div>
+    <div style="font-size:9.5pt;color:#111827;font-weight:600;line-height:1.6;margin-bottom:14px;">&rarr; {rec}</div>
+    <div style="border-top:1px solid #d1d5db;padding-top:12px;margin-top:12px;">
+      <div style="font-size:9.5pt;color:#374151;line-height:1.75;">{summary}</div>
+    </div>
+  </div>
 
   {sec("Clinical Notes")}
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-  <tr><td style="padding:14px 18px;font-size:10pt;color:#374151;
-               font-style:italic;line-height:1.7;">
-    {notes_disp}
-  </td></tr>
-  </table>
+  <div style="padding:12px;border:1px solid #d1d5db;background:#fafafa;margin-bottom:18px;min-height:50px;">
+    <div style="font-size:9pt;color:#4b5563;font-style:italic;line-height:1.65;">{notes_disp}</div>
+  </div>
 
-  <!-- ═══════════════════════════════════════════════════════ FOOTER -->
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="margin-top:28px;border-top:2px solid #e5e7eb;">
-  <tr><td style="padding-top:14px;">
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td valign="top" style="font-size:8pt;color:#6b7280;line-height:2;">
-        <b>Screened by:</b>&nbsp;{screened_by}&nbsp;&nbsp;
-        <b>Generated:</b>&nbsp;{report_date}
-      </td>
-      <td valign="top" align="right" style="font-size:8pt;color:#94a3b8;">
-        Powered by {escape(clinic_name)}
-      </td>
-    </tr></table>
-    <div style="margin-top:8px;font-size:7.5pt;color:#9ca3af;font-style:italic;line-height:1.6;">
-      This report is AI-assisted and does not replace the judgment of a licensed eye care professional.
-      All findings must be reviewed and confirmed by a qualified healthcare professional before any clinical action is taken.
+  <!-- FOOTER -->
+  <div style="margin-top:24px;padding-top:14px;border-top:2px solid #e5e7eb;">
+    <div style="font-size:7.5pt;color:#9ca3af;line-height:1.8;">
+      <b>Screened by:</b> {screened_by} &nbsp;|&nbsp; <b>Generated:</b> {report_date}<br>
+      <i>This report is AI-assisted and does not replace the judgment of a licensed eye care professional. All findings must be reviewed and confirmed by a qualified healthcare professional before any clinical action is taken.</i>
     </div>
-  </td></tr>
-  </table>
+  </div>
 
 </td></tr>
 </table>

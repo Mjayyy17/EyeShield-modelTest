@@ -314,6 +314,7 @@ class ModernCalendarDateEdit(QDateEdit):
                 border-bottom-right-radius: 6px;
             }}
             QDateEdit::down-arrow {{
+                image: url("{arrow}");
                 width: 10px;
                 height: 10px;
             }}
@@ -851,6 +852,32 @@ class ScreeningPage(QWidget):
         bg_h.addWidget(self.rbs, 1)
         c1.addLayout(row2(field("Blood Pressure", bp_w), field("Blood Glucose", bg_w)))
 
+        # Height, Weight, and BMI
+        self.height = QDoubleSpinBox()
+        self.height.setRange(0, 300)
+        self.height.setDecimals(1)
+        self.height.setSuffix(" cm")
+        self.height.setSpecialValueText(" ")
+        self.height.valueChanged.connect(self._calculate_bmi)
+        
+        self.weight = QDoubleSpinBox()
+        self.weight.setRange(0, 500)
+        self.weight.setDecimals(1)
+        self.weight.setSuffix(" kg")
+        self.weight.setSpecialValueText(" ")
+        self.weight.valueChanged.connect(self._calculate_bmi)
+        
+        self.bmi = QDoubleSpinBox()
+        self.bmi.setRange(0, 100)
+        self.bmi.setDecimals(1)
+        self.bmi.setReadOnly(True)
+        self.bmi.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.bmi.setSpecialValueText(" ")
+        self.bmi.setStyleSheet(
+            "QDoubleSpinBox{background:#f6f8fb;color:#475569;border:1.5px solid #d3dae3;border-radius:6px;padding:6px 10px;}"
+        )
+        c1.addLayout(row3(field("Height", self.height), field("Weight", self.weight), field("BMI", self.bmi)))
+
         c1.addWidget(lbl("Symptoms"))
         tags_h = QHBoxLayout()
         tags_h.setSpacing(8)
@@ -904,7 +931,21 @@ class ScreeningPage(QWidget):
         self.hba1c_warn_label.hide()
         c2.addWidget(self.hba1c_warn_label)
 
-        self.prev_treatment = QCheckBox("Previous DR Treatment")
+        # Treatment regimen dropdown
+        self.treatment_regimen = QComboBox()
+        self.treatment_regimen.setObjectName("treatmentRegimenDropdown")
+        self.treatment_regimen.addItems(["Select", "Insulin only", "Oral medications only", "Insulin + Oral medications", "Diet control only", "None/Unknown"])
+        self._apply_visible_dropdown_style(self.treatment_regimen)
+        c2.addLayout(field("Treatment Regimen", self.treatment_regimen, "scr_label_treatment"))
+
+        # Previous DR stage dropdown
+        self.prev_dr_stage = QComboBox()
+        self.prev_dr_stage.setObjectName("prevDRStageDropdown")
+        self.prev_dr_stage.addItems(["Select", "No previous DR", "Mild NPDR", "Moderate NPDR", "Severe NPDR", "PDR (Proliferative)", "Unknown"])
+        self._apply_visible_dropdown_style(self.prev_dr_stage)
+        c2.addLayout(field("Previous DR Stage", self.prev_dr_stage, "scr_label_prev_dr"))
+
+        self.prev_treatment = QCheckBox("Previous DR Treatment (Laser/Injection)")
         c2.addWidget(self.prev_treatment)
         self.notes = QTextEdit()
         self.notes.setPlaceholderText("Enter clinical notes…")
@@ -1110,6 +1151,18 @@ class ScreeningPage(QWidget):
         else:
             self.hba1c_warn_label.hide()
 
+    def _calculate_bmi(self):
+        """Auto-calculate BMI when height or weight changes."""
+        height_cm = self.height.value()
+        weight_kg = self.weight.value()
+        
+        if height_cm > 0 and weight_kg > 0:
+            height_m = height_cm / 100.0
+            bmi_value = weight_kg / (height_m * height_m)
+            self.bmi.setValue(round(bmi_value, 1))
+        else:
+            self.bmi.setValue(0)
+
     def _on_dob_text_changed(self, text):
         digits = "".join(ch for ch in text if ch.isdigit())[:8]
         if len(digits) <= 2:
@@ -1266,38 +1319,17 @@ class ScreeningPage(QWidget):
         self.diabetes_duration.setValue(max(0, years))
 
     def _validate_blood_pressure(self):
-        """Validate blood pressure ranges."""
+        """Validate blood pressure ranges - no warnings, just validation."""
         sys = self.bp_systolic.value()
         dia = self.bp_diastolic.value()
 
         # Both must be zero or both must be filled
         if (sys == 0) != (dia == 0):
-            QMessageBox.warning(
-                self, "Blood Pressure",
-                "Please enter both systolic and diastolic values, or leave both empty."
-            )
             return False
 
-        # If filled, check ranges
-        if sys > 0:
-            if sys < 80 or sys > 200:
-                QMessageBox.warning(
-                    self, "Blood Pressure",
-                    "Systolic pressure should be between 80-200 mmHg.\nIf this reading is correct, please document in clinical notes."
-                )
-                return False
-            if dia < 50 or dia > 130:
-                QMessageBox.warning(
-                    self, "Blood Pressure",
-                    "Diastolic pressure should be between 50-130 mmHg.\nIf this reading is correct, please document in clinical notes."
-                )
-                return False
-            if dia >= sys:
-                QMessageBox.warning(
-                    self, "Blood Pressure",
-                    "Diastolic pressure must be lower than systolic pressure."
-                )
-                return False
+        # If filled, check that diastolic is lower than systolic
+        if sys > 0 and dia >= sys:
+            return False
 
         return True
 
@@ -1592,6 +1624,16 @@ class ScreeningPage(QWidget):
             self.fbs.setValue(0)
         if hasattr(self, "rbs"):
             self.rbs.setValue(0)
+        if hasattr(self, "height"):
+            self.height.setValue(0)
+        if hasattr(self, "weight"):
+            self.weight.setValue(0)
+        if hasattr(self, "bmi"):
+            self.bmi.setValue(0)
+        if hasattr(self, "treatment_regimen"):
+            self.treatment_regimen.setCurrentIndex(0)
+        if hasattr(self, "prev_dr_stage"):
+            self.prev_dr_stage.setCurrentIndex(0)
         self.symptom_blurred.setChecked(False)
         self.symptom_floaters.setChecked(False)
         self.symptom_flashes.setChecked(False)
@@ -1883,7 +1925,7 @@ class ScreeningPage(QWidget):
             "prev_treatment": self.prev_treatment.isChecked(),
             "diabetes_type":  self.diabetes_type.currentText(),
             "eye":            self.p_eye.currentText(),
-            # New fields
+            # Vital signs
             "va_left":        self.va_left.text().strip(),
             "va_right":       self.va_right.text().strip(),
             "bp_systolic":    self.bp_systolic.value() if self.bp_systolic.value() > 0 else None,
@@ -1891,6 +1933,12 @@ class ScreeningPage(QWidget):
             "fbs":            self.fbs.value() if self.fbs.value() > 0 else None,
             "rbs":            self.rbs.value() if self.rbs.value() > 0 else None,
             "symptoms":       symptoms,
+            # Phase 1 additions
+            "height":         self.height.value() if self.height.value() > 0 else None,
+            "weight":         self.weight.value() if self.weight.value() > 0 else None,
+            "bmi":            self.bmi.value() if self.bmi.value() > 0 else None,
+            "treatment_regimen": self.treatment_regimen.currentText(),
+            "prev_dr_stage":  self.prev_dr_stage.currentText(),
         }
 
     def has_unsaved_result(self) -> bool:
@@ -1924,6 +1972,11 @@ class ScreeningPage(QWidget):
             "symptom_vision_loss": self.symptom_vision_loss.isChecked(),
             "symptom_other": self.symptom_other.text().strip(),
             "notes": self.notes.toPlainText(),
+            "height": self.height.value() if hasattr(self, "height") else 0,
+            "weight": self.weight.value() if hasattr(self, "weight") else 0,
+            "bmi": self.bmi.value() if hasattr(self, "bmi") else 0,
+            "treatment_regimen": self.treatment_regimen.currentText() if hasattr(self, "treatment_regimen") else "",
+            "prev_dr_stage": self.prev_dr_stage.currentText() if hasattr(self, "prev_dr_stage") else "",
             "image_path": str(self.current_image or "").strip(),
             "result_class": self.last_result_class,
             "result_conf": self.last_result_conf,
@@ -2146,7 +2199,8 @@ class ScreeningPage(QWidget):
                     symptom_blurred_vision = ?, symptom_floaters = ?,
                     symptom_flashes = ?, symptom_vision_loss = ?,
                     source_image_path = ?, heatmap_image_path = ?,
-                    image_sha256 = ?, image_saved_at = ?
+                    image_sha256 = ?, image_saved_at = ?,
+                    height = ?, weight = ?, bmi = ?, treatment_regimen = ?, prev_dr_stage = ?
                 WHERE id = ?
                 """,
                 [*patient_data, int(record_id)],
@@ -2200,6 +2254,13 @@ class ScreeningPage(QWidget):
         fbs_val = str(self.fbs.value()) if self.fbs.value() > 0 else ""
         rbs_val = str(self.rbs.value()) if self.rbs.value() > 0 else ""
 
+        # Phase 1 additions
+        height_val = str(self.height.value()) if self.height.value() > 0 else ""
+        weight_val = str(self.weight.value()) if self.weight.value() > 0 else ""
+        bmi_val = str(self.bmi.value()) if self.bmi.value() > 0 else ""
+        treatment_regimen = self.treatment_regimen.currentText() if self.treatment_regimen.currentText() != "Select" else ""
+        prev_dr_stage = self.prev_dr_stage.currentText() if self.prev_dr_stage.currentText() != "Select" else ""
+
         # Symptoms as Yes/No flags
         symptom_blurred_flag = "Yes" if self.symptom_blurred.isChecked() else "No"
         symptom_floaters_flag = "Yes" if self.symptom_floaters.isChecked() else "No"
@@ -2237,6 +2298,11 @@ class ScreeningPage(QWidget):
             "symptom_vision_loss": symptom_vision_loss_flag,
             "image": str(self.current_image or ""),
             "heatmap": str(getattr(self.results_page, "_current_heatmap_path", "") or ""),
+            "height": height_val,
+            "weight": weight_val,
+            "bmi": bmi_val,
+            "treatment_regimen": treatment_regimen,
+            "prev_dr_stage": prev_dr_stage,
         }
         initial_signature = hashlib.sha256(
             json.dumps(initial_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
@@ -2284,6 +2350,11 @@ class ScreeningPage(QWidget):
             "symptom_vision_loss": symptom_vision_loss_flag,
             "image": str(self.current_image or ""),
             "heatmap": str(getattr(self.results_page, "_current_heatmap_path", "") or ""),
+            "height": height_val,
+            "weight": weight_val,
+            "bmi": bmi_val,
+            "treatment_regimen": treatment_regimen,
+            "prev_dr_stage": prev_dr_stage,
         }
         pre_signature = hashlib.sha256(
             json.dumps(pre_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
@@ -2333,6 +2404,12 @@ class ScreeningPage(QWidget):
             heatmap_image_path,
             image_sha256,
             image_saved_at,
+            # Phase 1 additions
+            height_val,
+            weight_val,
+            bmi_val,
+            treatment_regimen,
+            prev_dr_stage,
         ]
 
         save_ok = (
@@ -2459,6 +2536,13 @@ class ScreeningPage(QWidget):
         sym_flashes = self.symptom_flashes.isChecked()
         sym_vision_loss = self.symptom_vision_loss.isChecked()
         sym_other = self.symptom_other.text()
+        
+        # Capture Phase 1 additions
+        height_v = self.height.value()
+        weight_v = self.weight.value()
+        bmi_v = self.bmi.value()
+        treatment_reg = self.treatment_regimen.currentText()
+        prev_dr = self.prev_dr_stage.currentText()
 
         # Preserve first eye result across reset so results page can show bilateral comparison
         saved_first_eye_result = self._first_eye_result
@@ -2501,6 +2585,13 @@ class ScreeningPage(QWidget):
         self.symptom_flashes.setChecked(sym_flashes)
         self.symptom_vision_loss.setChecked(sym_vision_loss)
         self.symptom_other.setText(sym_other)
+        
+        # Restore Phase 1 additions
+        self.height.setValue(height_v)
+        self.weight.setValue(weight_v)
+        self.bmi.setValue(bmi_v)
+        self.treatment_regimen.setCurrentText(treatment_reg)
+        self.prev_dr_stage.setCurrentText(prev_dr)
 
         # Pre-select the other eye
         self.p_eye.setCurrentText(opposite_eye)
@@ -2525,8 +2616,9 @@ class ScreeningPage(QWidget):
                     symptom_blurred_vision, symptom_floaters,
                     symptom_flashes, symptom_vision_loss,
                     source_image_path, heatmap_image_path,
-                    image_sha256, image_saved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    image_sha256, image_saved_at,
+                    height, weight, bmi, treatment_regimen, prev_dr_stage
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 patient_data,
             )
