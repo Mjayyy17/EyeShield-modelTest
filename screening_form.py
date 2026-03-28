@@ -160,10 +160,11 @@ class DropZoneLabel(QLabel):
 class ModernCalendarDateEdit(QDateEdit):
     """Clean date picker — dropdown arrow only, no separate button panel."""
 
-    def __init__(self, min_date: QDate, max_date: QDate, arrow_icon_path: str, parent=None):
+    def __init__(self, min_date: QDate, max_date: QDate, arrow_icon_path: str, default_date: QDate = None, parent=None):
         super().__init__(parent)
         self._min_date = min_date
         self._max_date = max_date
+        self._default_date = default_date or QDate(2000, 1, 1)
         self._arrow_icon_path = str(arrow_icon_path or "").replace("\\", "/")
 
         self.setDisplayFormat("dd/MM/yyyy")
@@ -171,7 +172,7 @@ class ModernCalendarDateEdit(QDateEdit):
         self.setMinimumDate(min_date)
         self.setMaximumDate(max_date)
         self.setSpecialValueText("")
-        self.setDate(min_date)
+        self.setDate(self._default_date)
 
         cal = QCalendarWidget(self)
         cal.setGridVisible(False)
@@ -542,6 +543,7 @@ class ScreeningPage(QWidget):
         self.patient_counter = 0
         self.min_dob_date = QDate(1900, 1, 1)
         self.max_dob_date = QDate.currentDate()
+        self.default_dob_date = QDate(2000, 1, 1)  # Default calendar view year
         self.last_result_class = "Pending"
         self.last_result_conf = "Pending"
         self._custom_storage_root = ""
@@ -771,7 +773,7 @@ class ScreeningPage(QWidget):
             "icons",
             "dropdown_arrow.svg",
         )
-        self.p_dob = ModernCalendarDateEdit(self.min_dob_date, self.max_dob_date, dob_arrow_icon)
+        self.p_dob = ModernCalendarDateEdit(self.min_dob_date, self.max_dob_date, dob_arrow_icon, self.default_dob_date)
         self._dob_default_style = ""
         self._dob_invalid_style = ""
         self.p_dob.dateChanged.connect(self.update_age_from_dob)
@@ -797,6 +799,32 @@ class ScreeningPage(QWidget):
 
         self.p_contact = QLineEdit()
         self.p_contact.setPlaceholderText("Phone or Email")
+
+        # Height, Weight, and BMI
+        self.height = QDoubleSpinBox()
+        self.height.setRange(0, 300)
+        self.height.setDecimals(1)
+        self.height.setSuffix(" cm")
+        self.height.setSpecialValueText(" ")
+        self.height.valueChanged.connect(self._calculate_bmi)
+
+        self.weight = QDoubleSpinBox()
+        self.weight.setRange(0, 500)
+        self.weight.setDecimals(1)
+        self.weight.setSuffix(" kg")
+        self.weight.setSpecialValueText(" ")
+        self.weight.valueChanged.connect(self._calculate_bmi)
+
+        self.bmi = QDoubleSpinBox()
+        self.bmi.setRange(0, 100)
+        self.bmi.setDecimals(1)
+        self.bmi.setReadOnly(True)
+        self.bmi.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.bmi.setSpecialValueText(" ")
+        self.bmi.setStyleSheet(
+            "QDoubleSpinBox{background:#f6f8fb;color:#475569;border:1.5px solid #d3dae3;border-radius:6px;padding:6px 10px;}"
+        )
+        c1.addLayout(row3(field("Height", self.height), field("Weight", self.weight), field("BMI", self.bmi)))
         c1.addLayout(field("Contact", self.p_contact, "scr_label_contact"))
 
         sep = QFrame()
@@ -851,32 +879,6 @@ class ScreeningPage(QWidget):
         bg_h.addWidget(_rl)
         bg_h.addWidget(self.rbs, 1)
         c1.addLayout(row2(field("Blood Pressure", bp_w), field("Blood Glucose", bg_w)))
-
-        # Height, Weight, and BMI
-        self.height = QDoubleSpinBox()
-        self.height.setRange(0, 300)
-        self.height.setDecimals(1)
-        self.height.setSuffix(" cm")
-        self.height.setSpecialValueText(" ")
-        self.height.valueChanged.connect(self._calculate_bmi)
-        
-        self.weight = QDoubleSpinBox()
-        self.weight.setRange(0, 500)
-        self.weight.setDecimals(1)
-        self.weight.setSuffix(" kg")
-        self.weight.setSpecialValueText(" ")
-        self.weight.valueChanged.connect(self._calculate_bmi)
-        
-        self.bmi = QDoubleSpinBox()
-        self.bmi.setRange(0, 100)
-        self.bmi.setDecimals(1)
-        self.bmi.setReadOnly(True)
-        self.bmi.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self.bmi.setSpecialValueText(" ")
-        self.bmi.setStyleSheet(
-            "QDoubleSpinBox{background:#f6f8fb;color:#475569;border:1.5px solid #d3dae3;border-radius:6px;padding:6px 10px;}"
-        )
-        c1.addLayout(row3(field("Height", self.height), field("Weight", self.weight), field("BMI", self.bmi)))
 
         c1.addWidget(lbl("Symptoms"))
         tags_h = QHBoxLayout()
@@ -1600,7 +1602,7 @@ class ScreeningPage(QWidget):
         self.p_name.clear()
         self.p_contact.clear()
         if isinstance(self.p_dob, QDateEdit):
-            self.p_dob.setDate(self.min_dob_date)
+            self.p_dob.setDate(self.default_dob_date)
         else:
             self.p_dob.clear()
         self.p_age.setValue(0)
