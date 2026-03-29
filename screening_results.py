@@ -163,8 +163,8 @@ class ResultsWindow(QWidget):
         _scroll.setWidget(_container)
 
         layout = QVBoxLayout(_container)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(14)
+        layout.setContentsMargins(32, 32, 32, 32)
+        layout.setSpacing(20)
 
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
@@ -202,7 +202,7 @@ class ResultsWindow(QWidget):
         top_row.addLayout(heading_col, 1)
 
         action_row = QHBoxLayout()
-        action_row.setSpacing(8)
+        action_row.setSpacing(10)
 
         self.btn_back = QPushButton("\u2190 Back")
         self.btn_back.setObjectName("dangerAction")
@@ -267,13 +267,13 @@ class ResultsWindow(QWidget):
         layout.addWidget(self.save_note_label)
 
         image_row = QHBoxLayout()
-        image_row.setSpacing(12)
+        image_row.setSpacing(16)
 
         source_card = QGroupBox("")
         source_card.setObjectName("resultGroupCard")
         source_layout = QVBoxLayout(source_card)
-        source_layout.setContentsMargins(12, 12, 12, 12)
-        source_layout.setSpacing(8)
+        source_layout.setContentsMargins(16, 16, 16, 16)
+        source_layout.setSpacing(10)
         source_head = QHBoxLayout()
         source_head.setSpacing(6)
         source_title = QLabel("Source Image - Fundus")
@@ -294,8 +294,8 @@ class ResultsWindow(QWidget):
         heatmap_card = QGroupBox("")
         heatmap_card.setObjectName("resultGroupCard")
         heatmap_layout = QVBoxLayout(heatmap_card)
-        heatmap_layout.setContentsMargins(12, 12, 12, 12)
-        heatmap_layout.setSpacing(8)
+        heatmap_layout.setContentsMargins(16, 16, 16, 16)
+        heatmap_layout.setSpacing(10)
         heatmap_head = QHBoxLayout()
         heatmap_head.setSpacing(6)
         heatmap_title = QLabel("Grad-CAM++ Heatmap")
@@ -318,13 +318,13 @@ class ResultsWindow(QWidget):
         layout.addLayout(image_row)
 
         stats_row = QHBoxLayout()
-        stats_row.setSpacing(12)
+        stats_row.setSpacing(16)
 
         class_card = QFrame()
         class_card.setObjectName("resultStatCard")
         class_layout = QVBoxLayout(class_card)
-        class_layout.setContentsMargins(14, 14, 14, 14)
-        class_layout.setSpacing(6)
+        class_layout.setContentsMargins(18, 18, 18, 18)
+        class_layout.setSpacing(8)
         class_title = QLabel("CLASSIFICATION")
         class_title.setObjectName("resultStatTitle")
         self.classification_value = QLabel("Pending")
@@ -339,26 +339,26 @@ class ResultsWindow(QWidget):
         confidence_card = QFrame()
         confidence_card.setObjectName("resultStatCard")
         confidence_layout = QVBoxLayout(confidence_card)
-        confidence_layout.setContentsMargins(14, 14, 14, 14)
-        confidence_layout.setSpacing(6)
-        confidence_title = QLabel("CONFIDENCE")
+        confidence_layout.setContentsMargins(18, 18, 18, 18)
+        confidence_layout.setSpacing(8)
+        confidence_title = QLabel("PREDICTION CONFIDENCE")
         confidence_title.setObjectName("resultStatTitle")
-        self.confidence_value = QLabel("0.0%")
+        self.confidence_value = QLabel("CONFIDENCE  0.0%")
         self.confidence_value.setObjectName("monoValue")
         self.confidence_bar = QProgressBar()
         self.confidence_bar.setRange(0, 1000)
         self.confidence_bar.setValue(0)
         self.confidence_bar.setTextVisible(False)
         self.confidence_bar.setObjectName("confidenceBar")
-        self.confidence_bar.setFixedHeight(6)
-        self.uncertainty_value = QLabel("UNCERTAINTY 0.0%")
+        self.confidence_bar.setFixedHeight(8)
+        self.uncertainty_value = QLabel("UNCERTAINTY  0.0%")
         self.uncertainty_value.setObjectName("uncertaintyValue")
         self.uncertainty_bar = QProgressBar()
         self.uncertainty_bar.setRange(0, 1000)
         self.uncertainty_bar.setValue(0)
         self.uncertainty_bar.setTextVisible(False)
         self.uncertainty_bar.setObjectName("uncertaintyBar")
-        self.uncertainty_bar.setFixedHeight(6)
+        self.uncertainty_bar.setFixedHeight(8)
         confidence_layout.addWidget(confidence_title)
         confidence_layout.addWidget(self.confidence_value)
         confidence_layout.addWidget(self.confidence_bar)
@@ -368,8 +368,8 @@ class ResultsWindow(QWidget):
         reco_card = QFrame()
         reco_card.setObjectName("resultStatCard")
         reco_layout = QVBoxLayout(reco_card)
-        reco_layout.setContentsMargins(14, 14, 14, 14)
-        reco_layout.setSpacing(6)
+        reco_layout.setContentsMargins(18, 18, 18, 18)
+        reco_layout.setSpacing(8)
         reco_title = QLabel("RECOMMENDATION")
         reco_title.setObjectName("resultStatTitle")
         self.recommendation_value = QLabel("Consult eye care specialist")
@@ -390,8 +390,8 @@ class ResultsWindow(QWidget):
         self.bilateral_frame = QFrame()
         self.bilateral_frame.setObjectName("resultStatCard")
         bilateral_layout = QVBoxLayout(self.bilateral_frame)
-        bilateral_layout.setContentsMargins(14, 12, 14, 12)
-        bilateral_layout.setSpacing(8)
+        bilateral_layout.setContentsMargins(18, 16, 18, 16)
+        bilateral_layout.setSpacing(12)
         bilateral_title = QLabel("↔  Bilateral Screening Comparison")
         bilateral_title.setObjectName("resultStatTitle")
         bilateral_layout.addWidget(bilateral_title)
@@ -437,8 +437,8 @@ class ResultsWindow(QWidget):
         explanation_group = QGroupBox("Clinical Summary")
         explanation_group.setObjectName("resultGroupCard")
         explanation_layout = QVBoxLayout(explanation_group)
-        explanation_layout.setContentsMargins(14, 14, 14, 14)
-        explanation_layout.setSpacing(10)
+        explanation_layout.setContentsMargins(18, 18, 18, 18)
+        explanation_layout.setSpacing(12)
 
         self.summary_line_1 = QLabel("No signs of diabetic retinopathy detected")
         self.summary_line_1.setObjectName("summaryRowSuccess")
@@ -472,12 +472,18 @@ class ResultsWindow(QWidget):
 
         self.setStyleSheet("""
             QWidget {
-                background: #f3f4f6;
+                background: #ffffff;
                 color: #1f2937;
                 font-family: "DM Sans", "Segoe UI", "Inter", sans-serif;
                 font-size: 14px;
             }
-            QScrollArea { border: none; }
+            QScrollArea {
+                background: #ffffff;
+                border: none;
+            }
+            QLabel {
+                background: transparent;
+            }
             QLabel#crumbLabel {
                 color: #6b7280;
                 font-size: 11px;
@@ -514,9 +520,10 @@ class ResultsWindow(QWidget):
             }
             QGroupBox#resultGroupCard {
                 background: #ffffff;
-                border: 1px solid #d1d5db;
+                border: 1px solid #e5e7eb;
                 border-radius: 12px;
                 margin-top: 0;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             }
             QGroupBox#resultGroupCard::title {
                 color: transparent;
@@ -536,21 +543,21 @@ class ResultsWindow(QWidget):
             }
             QLabel#sourceImageSurface {
                 background: #000000;
-                border: 1px solid #d1d5db;
+                border: 1px solid #e5e7eb;
                 border-radius: 8px;
                 color: #9ca3af;
                 font-size: 13px;
             }
             QLabel#heatmapImageSurface {
                 background: #0b0f19;
-                border: 1px solid #d1d5db;
+                border: 1px solid #e5e7eb;
                 border-radius: 8px;
                 color: #9ca3af;
                 font-size: 14px;
             }
             QFrame#resultStatCard {
-                background: #ffffff;
-                border: 1px solid #d1d5db;
+                background: #f9fafb;
+                border: 1px solid #e5e7eb;
                 border-radius: 12px;
             }
             QLabel#resultStatTitle {
@@ -560,53 +567,55 @@ class ResultsWindow(QWidget):
                 letter-spacing: 0.9px;
             }
             QLabel#classificationValue {
-                color: #166534;
+                color: #2563eb;
                 font-size: 33px;
-                font-weight: 800;
+                font-weight: 900;
             }
             QLabel#resultStatValue {
                 color: #111827;
                 font-size: 18px;
-                font-weight: 700;
+                font-weight: 800;
             }
             QLabel#monoValue {
                 color: #1f2937;
                 font-family: "DM Mono", "Consolas", monospace;
-                font-size: 24px;
-                font-weight: 700;
+                font-size: 22px;
+                font-weight: 900;
             }
             QProgressBar#confidenceBar {
-                border: 1px solid #bfdbfe;
+                border: none;
                 border-radius: 4px;
-                background: #eff6ff;
+                background: #e5e7eb;
+                height: 6px;
             }
             QProgressBar#confidenceBar::chunk {
                 background: #2563eb;
                 border-radius: 4px;
             }
             QProgressBar#uncertaintyBar {
-                border: 1px solid #fde68a;
+                border: none;
                 border-radius: 4px;
-                background: #fffbeb;
+                background: #fef3c7;
+                height: 6px;
             }
             QProgressBar#uncertaintyBar::chunk {
-                background: #d97706;
+                background: #f59e0b;
                 border-radius: 4px;
             }
             QLabel#metaText {
-                color: #4b5563;
+                color: #6b7280;
                 font-size: 12px;
                 font-weight: 500;
             }
             QFrame#uncertaintyPanel {
                 background: #fffbeb;
-                border: 1px solid #f59e0b;
+                border: 1px solid #fce7b6;
                 border-radius: 8px;
             }
             QLabel#uncertaintyValue {
                 color: #92400e;
-                font-size: 14px;
-                font-weight: 800;
+                font-size: 22px;
+                font-weight: 900;
                 letter-spacing: 0.4px;
             }
             QLabel#okBadge {
@@ -622,83 +631,97 @@ class ResultsWindow(QWidget):
                 background: transparent;
                 border: none;
                 border-radius: 0;
-                color: #374151;
-                font-size: 12px;
+                color: #595959;
+                font-size: 13px;
                 font-weight: 500;
-                line-height: 1.45;
+                line-height: 1.6;
                 padding: 0;
             }
             QLabel#summaryRowSuccess {
                 background: transparent;
                 border: none;
                 border-radius: 0;
-                padding: 2px 0;
+                padding: 6px 0;
                 color: #166534;
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
             }
             QLabel#summaryRowInfo {
                 background: transparent;
                 border: none;
                 border-radius: 0;
-                padding: 2px 0;
+                padding: 6px 0;
                 color: #1d4ed8;
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
             }
             QLabel#summaryRowWarn {
                 background: transparent;
                 border: none;
                 border-radius: 0;
-                padding: 2px 0;
+                padding: 6px 0;
                 color: #b45309;
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
             }
             QLabel#footerLabel {
-                color: #6b7280;
+                color: #9ca3af;
                 font-size: 11px;
-                padding-top: 6px;
+                padding-top: 12px;
+                padding-bottom: 12px;
             }
             QPushButton {
                 background: #ffffff;
                 color: #1f2937;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 8px 12px;
-                font-weight: 700;
+                padding: 10px 16px;
+                font-weight: 600;
+                font-size: 13px;
             }
             QPushButton:hover {
-                background: #f9fafb;
+                background: #f3f4f6;
+                border-color: #9ca3af;
+            }
+            QPushButton:pressed {
+                background: #e5e7eb;
             }
             QPushButton:disabled {
-                background: #f3f4f6;
-                color: #94a3b8;
+                background: #f9fafb;
+                color: #d1d5db;
                 border-color: #e5e7eb;
             }
             QPushButton#primaryAction {
                 background: #2563eb;
                 color: #ffffff;
-                border: 1px solid #1d4ed8;
+                border: none;
+                font-weight: 600;
             }
             QPushButton#primaryAction:hover {
                 background: #1d4ed8;
+            }
+            QPushButton#primaryAction:pressed {
+                background: #1e40af;
             }
             QPushButton#neutralAction {
                 background: #ffffff;
                 color: #1f2937;
                 border: 1px solid #d1d5db;
+                font-weight: 600;
             }
             QPushButton#neutralAction:hover {
                 background: #f9fafb;
+                border-color: #9ca3af;
             }
             QPushButton#dangerAction {
                 background: #fef2f2;
                 color: #b91c1c;
-                border: 1px solid #fca5a5;
+                border: 1px solid #fecaca;
+                font-weight: 600;
             }
             QPushButton#dangerAction:hover {
                 background: #fee2e2;
+                border-color: #fca5a5;
             }
         """)
 
@@ -880,7 +903,7 @@ class ResultsWindow(QWidget):
 
         confidence_pct = self._extract_percent_value(confidence_text)
         confidence_display = self._format_percent(confidence_pct)
-        self.confidence_value.setText(confidence_display)
+        self.confidence_value.setText(f"CONFIDENCE  {confidence_display}")
         self.confidence_bar.setValue(int(round(confidence_pct * 10)))
 
         uncertainty_match = re.search(r"uncertainty\s*:?\s*(\d+(?:\.\d+)?)\s*%", str(confidence_text or ""), re.IGNORECASE)
@@ -889,7 +912,7 @@ class ResultsWindow(QWidget):
         else:
             uncertainty_pct = max(0.0, min(100.0, 100.0 - confidence_pct))
         self._uncertainty_pct = uncertainty_pct
-        self.uncertainty_value.setText(f"Uncertainty {self._format_percent(uncertainty_pct)}")
+        self.uncertainty_value.setText(f"UNCERTAINTY  {self._format_percent(uncertainty_pct)}")
         self.uncertainty_bar.setValue(int(round(uncertainty_pct * 10)))
 
         # Grade-specific recommendation
@@ -989,40 +1012,43 @@ class ResultsWindow(QWidget):
         if not self.parent_page:
             return
         page = self.parent_page
-        
+
         # Always show warning before going back (data will be cleared)
         box = QMessageBox(self)
         box.setWindowTitle("Back to Screening")
         box.setIcon(QMessageBox.Icon.Warning)
-        
-        if not getattr(page, "_current_eye_saved", True):
+
+        is_saved = getattr(page, "_current_eye_saved", True)
+        if not is_saved:
             # Unsaved results
             box.setText(
                 "<b>Unsaved screening results will be lost.</b><br><br>"
                 "Going back will clear all patient data and start a new screening.<br><br>"
                 "Are you sure you want to go back?"
             )
+            stay_btn = box.addButton("Stay on Results", QMessageBox.ButtonRole.RejectRole)
+            clear_btn = box.addButton("Discard & Go Back", QMessageBox.ButtonRole.DestructiveRole)
         else:
             # Saved results but still warns about clearing
             box.setText(
                 "Going back will clear all patient data and start a new screening.<br><br>"
                 "Are you sure you want to go back?"
             )
-        
-        stay_btn = box.addButton("Stay on Results", QMessageBox.ButtonRole.RejectRole)
-        clear_btn = box.addButton("Clear and Go Back", QMessageBox.ButtonRole.DestructiveRole)
+            stay_btn = box.addButton("Stay on Results", QMessageBox.ButtonRole.RejectRole)
+            clear_btn = box.addButton("Clear & Go Back", QMessageBox.ButtonRole.DestructiveRole)
+
         box.setDefaultButton(stay_btn)
         box.exec()
-        
+
         if box.clickedButton() != clear_btn:
             write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "User chose to stay")
             return
-        
+
         write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "User confirmed clear and go back")
-        
+
         # Clear all fields and reset
         page.reset_screening()
-        
+
         # Switch back to intake form
         if hasattr(page, "stacked_widget"):
             page.stacked_widget.setCurrentIndex(0)
@@ -1040,7 +1066,7 @@ class ResultsWindow(QWidget):
             return
 
         status = result.get("status")
-        if status == "saved":
+        if status in ("saved", "replaced"):
             saved_path = str(result.get("path") or "")
             details = f"Saved ✓ {saved_path}" if saved_path else "Saved ✓"
             self._set_save_state("success", details)
@@ -1077,11 +1103,12 @@ class ResultsWindow(QWidget):
             return
         page = self.parent_page
         if not getattr(page, "_current_eye_saved", True):
+            current_eye = page.p_eye.currentText() if hasattr(page, "p_eye") else "screening"
             box = QMessageBox(self)
             box.setWindowTitle("Unsaved Screening Result")
             box.setIcon(QMessageBox.Icon.Warning)
             box.setText(
-                "This screening result has not been saved. Starting a new patient will permanently discard it."
+                f"This <b>{current_eye}</b> screening result has not been saved. Starting a new patient will permanently discard it."
             )
             save_first_btn = box.addButton("Save First", QMessageBox.ButtonRole.AcceptRole)
             discard_btn = box.addButton("Discard and Continue", QMessageBox.ButtonRole.DestructiveRole)

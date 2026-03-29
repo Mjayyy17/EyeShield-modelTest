@@ -237,6 +237,10 @@ class ReportsPage(QWidget):
         self.report_btn.setEnabled(False)
         self.report_btn.clicked.connect(self.generate_report)
         top_bar.addWidget(self.report_btn)
+        self.rescreen_btn = QPushButton("Rescreen")
+        self.rescreen_btn.setEnabled(False)
+        self.rescreen_btn.clicked.connect(self.rescreen_patient)
+        top_bar.addWidget(self.rescreen_btn)
         root.addLayout(top_bar)
 
         self._rep_subtitle_lbl.setVisible(False)
@@ -307,10 +311,13 @@ class ReportsPage(QWidget):
     def _setup_action_buttons_ui(self):
         self._set_button_icon(self.export_btn, "export.svg")
         self._set_button_icon(self.report_btn, "generate_report.svg")
+        self._set_button_icon(self.rescreen_btn, "rescreen.svg")
         self.export_btn.setText("Export")
         self.report_btn.setText("Report")
+        self.rescreen_btn.setText("Rescreen")
         self.export_btn.setToolTip("Export currently visible report rows to CSV")
         self.report_btn.setToolTip("Generate a detailed PDF report for the selected patient")
+        self.rescreen_btn.setToolTip("Rescreen the selected patient")
         if self.archived_records_btn is not None:
             self._set_button_icon(self.archived_records_btn, "archives.svg")
             self.archived_records_btn.setText("Archived Records")
@@ -320,7 +327,7 @@ class ReportsPage(QWidget):
             self.archive_btn.setText("Archive")
             self.archive_btn.setToolTip("Archive the selected active patient record")
 
-        top_icon_buttons = [self.export_btn, self.report_btn]
+        top_icon_buttons = [self.export_btn, self.report_btn, self.rescreen_btn]
         if self.archive_btn is not None:
             top_icon_buttons.append(self.archive_btn)
         if self.archived_records_btn is not None:
@@ -500,6 +507,7 @@ class ReportsPage(QWidget):
 
         menu = QMenu(self)
         generate_action = menu.addAction("Generate Report")
+        rescreen_action = menu.addAction("Rescreen Patient")
         archive_action = None
         if self.is_admin:
             archive_action = menu.addAction("Archive Record")
@@ -508,6 +516,8 @@ class ReportsPage(QWidget):
         chosen = menu.exec(self.results_table.viewport().mapToGlobal(pos))
         if chosen == generate_action:
             self.generate_report()
+        elif chosen == rescreen_action:
+            self.rescreen_patient()
         elif archive_action is not None and chosen == archive_action:
             self.archive_selected_record()
 
@@ -520,6 +530,7 @@ class ReportsPage(QWidget):
     def _update_action_buttons(self):
         record = self._get_selected_record()
         self.report_btn.setEnabled(bool(record))
+        self.rescreen_btn.setEnabled(bool(record))
         if self.is_admin:
             self.archive_btn.setEnabled(bool(record and not record["archived_at"]))
 
@@ -548,6 +559,55 @@ class ReportsPage(QWidget):
             QMessageBox.warning(self, "Archive Record", "Unable to archive the selected patient record.")
             return
         self.refresh_report()
+
+    def rescreen_patient(self):
+        """Open rescreen dialog and navigate to screening page."""
+        record = self._get_selected_record()
+        if not record:
+            QMessageBox.information(self, "Rescreen Patient", "Select a patient record to rescreen.")
+            return
+
+        # Get the actual record ID - use first record_id if multiple exist
+        record_ids = record.get("record_ids") or [record.get("id")]
+        if not record_ids or not record_ids[0]:
+            QMessageBox.warning(self, "Rescreen Patient", "Unable to identify patient record ID.")
+            return
+
+        actual_record_id = record_ids[0]
+
+        label = f"{record['name'] or 'Unknown Patient'} ({record['patient_id'] or 'No ID'})"
+        box = QMessageBox(self)
+        box.setWindowTitle("Rescreen Patient")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            f"How would you like to rescreen <b>{label}</b>?"
+        )
+        new_btn = box.addButton("Create New Screening", QMessageBox.ButtonRole.AcceptRole)
+        replace_btn = box.addButton("Replace Screening Record", QMessageBox.ButtonRole.ActionRole)
+        cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel_btn)
+        box.exec()
+
+        chosen = box.clickedButton()
+        if chosen == cancel_btn:
+            return
+
+        replace_mode = chosen == replace_btn
+
+        # Get main window and screening page
+        main_window = self.window()
+        if not hasattr(main_window, 'screening_page') or not hasattr(main_window, 'pages'):
+            QMessageBox.warning(self, "Navigation Error", "Unable to navigate to screening page.")
+            return
+
+        screening_page = main_window.screening_page
+        if not screening_page.load_patient_for_rescreen(actual_record_id, replace_mode=replace_mode):
+            QMessageBox.warning(self, "Load Patient", f"Failed to load patient data for rescreening.\n\nRecord ID: {actual_record_id}")
+            return
+
+        # Navigate to screening page
+        main_window.pages.setCurrentIndex(1)
+
 
     def restore_record(self, record):
         if not record or not record["archived_at"]:

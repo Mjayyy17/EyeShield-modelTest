@@ -12,6 +12,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import traceback
 
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout,
@@ -553,6 +554,7 @@ class ScreeningPage(QWidget):
         self._current_eye_saved = False
         self._first_eye_result = None
         self._navigation_locked = False
+        self._rescreen_replace_record_id = None
         self._flow_guard = ScreeningFlowGuard(self)
         self._duplicate_detector = DuplicateDetector()
         self._draft_path = get_autosave_draft_path()
@@ -1634,6 +1636,162 @@ class ScreeningPage(QWidget):
             self.bmi.setValue(0)
         if hasattr(self, "treatment_regimen"):
             self.treatment_regimen.setCurrentIndex(0)
+
+    def load_patient_for_rescreen(self, record_id: int, replace_mode: bool = False):
+        """Load a patient from database for rescreening.
+
+        Args:
+            record_id: Database record ID to load
+            replace_mode: If True, will replace this record when saving. If False, creates new record.
+        """
+        try:
+            record_id = int(record_id)  # Ensure it's an integer
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+
+            # Use exact same query as generate_report's _fetch_full_record
+            cur.execute("""
+                SELECT id, patient_id, name, birthdate, age, sex, contact, eyes,
+                       diabetes_type, duration, hba1c, prev_treatment, notes,
+                       result, confidence, screened_at,
+                       visual_acuity_left, visual_acuity_right,
+                       blood_pressure_systolic, blood_pressure_diastolic,
+                       fasting_blood_sugar, random_blood_sugar,
+                       symptom_blurred_vision, symptom_floaters,
+                       symptom_flashes, symptom_vision_loss,
+                       source_image_path, heatmap_image_path,
+                       image_sha256, image_saved_at
+                FROM patient_records WHERE id = ?
+            """, (record_id,))
+            row = cur.fetchone()
+            conn.close()
+
+            if not row:
+                write_activity("ERROR", "LOAD_RESCREEN_FAILED", f"No record found in DB for id={record_id}")
+                return False
+
+            # Map row tuple to values by position (matching query order)
+            (id_val, patient_id, name, birthdate, age, sex, contact, eyes,
+             diabetes_type, duration, hba1c, prev_treatment, notes,
+             result, confidence, screened_at,
+             va_left, va_right,
+             bp_sys, bp_dia,
+             fbs, rbs,
+             symptom_blurred, symptom_floaters,
+             symptom_flashes, symptom_vision_loss,
+             source_image_path, heatmap_image_path,
+             image_sha256, image_saved_at) = row
+
+            # Load data from record with safe type conversion
+            self.p_id.setText(str(patient_id or ""))
+            self.p_name.setText(str(name or ""))
+
+            # DOB widget can be a QDateEdit (current UI) or text field (legacy UI)
+            dob_text = str(birthdate or "").strip()
+            if isinstance(self.p_dob, QDateEdit):
+                dob_qdate = QDate()
+                for fmt in ("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy"):
+                    parsed = QDate.fromString(dob_text, fmt)
+                    if parsed.isValid():
+                        dob_qdate = parsed
+                        break
+
+                if dob_qdate.isValid():
+                    min_date = self.p_dob.minimumDate()
+                    max_date = self.p_dob.maximumDate()
+                    if min_date.isValid() and dob_qdate < min_date:
+                        dob_qdate = min_date
+                    if max_date.isValid() and dob_qdate > max_date:
+                        dob_qdate = max_date
+                    self.p_dob.setDate(dob_qdate)
+                elif hasattr(self, "default_dob_date") and isinstance(self.default_dob_date, QDate):
+                    self.p_dob.setDate(self.default_dob_date)
+            else:
+                self.p_dob.setText(dob_text)
+
+            # Safe int conversion for age
+            try:
+                age_val = int(float(str(age or 0)))
+                self.p_age.setValue(age_val)
+            except (ValueError, TypeError):
+                self.p_age.setValue(0)
+
+            # Safe sex setting
+            sex_str = str(sex or "").strip()
+            if sex_str and self.p_sex.findText(sex_str) >= 0:
+                self.p_sex.setCurrentText(sex_str)
+            else:
+                self.p_sex.setCurrentIndex(0)
+
+            self.p_contact.setText(str(contact or ""))
+
+            # Safe diabetes type setting
+            diabetes_str = str(diabetes_type or "").strip()
+            if diabetes_str and diabetes_str != "Select":
+                if self.diabetes_type.findText(diabetes_str) >= 0:
+                    self.diabetes_type.setCurrentText(diabetes_str)
+                else:
+                    self.diabetes_type.setCurrentIndex(0)
+            else:
+                self.diabetes_type.setCurrentIndex(0)
+
+            # Safe int conversion for duration
+            try:
+                duration_val = int(float(str(duration or 0)))
+                self.diabetes_duration.setValue(duration_val)
+            except (ValueError, TypeError):
+                self.diabetes_duration.setValue(0)
+
+            # Safe float conversion for hba1c
+            try:
+                hba1c_val = float(str(hba1c or 7.0))
+                self.hba1c.setValue(hba1c_val)
+            except (ValueError, TypeError):
+                self.hba1c.setValue(7.0)
+
+            # Safe prev_treatment boolean
+            try:
+                self.prev_treatment.setChecked(bool(prev_treatment and str(prev_treatment).lower() in ("yes", "true", "1")))
+            except Exception:
+                self.prev_treatment.setChecked(False)
+
+            self.notes.setPlainText(str(notes or ""))
+
+            # Set eye based on previous record - match against available options
+            eye_value = str(eyes or "").strip()
+            if eye_value:
+                # Try exact match first
+                idx = self.p_eye.findText(eye_value)
+                if idx >= 0:
+                    self.p_eye.setCurrentIndex(idx)
+                else:
+                    # Try partial match as fallback
+                    matched = False
+                    for i in range(self.p_eye.count()):
+                        item_text = self.p_eye.itemText(i)
+                        if eye_value.lower() in item_text.lower() or item_text.lower() in eye_value.lower():
+                            self.p_eye.setCurrentIndex(i)
+                            matched = True
+                            break
+                    if not matched:
+                        self.p_eye.setCurrentIndex(0)
+            else:
+                self.p_eye.setCurrentIndex(0)
+
+            # Clear image for fresh screening
+            self.clear_image()
+            self._current_eye_saved = False
+
+            # Store replace mode flag
+            self._rescreen_replace_record_id = record_id if replace_mode else None
+
+            write_activity("INFO", "LOAD_RESCREEN", f"Loaded patient for rescreening: record_id={record_id}, replace_mode={replace_mode}")
+            return True
+
+        except Exception as e:
+            err_detail = traceback.format_exc()
+            write_activity("ERROR", "LOAD_RESCREEN_FAILED", f"Exception: {type(e).__name__}: {str(e)} | {err_detail}")
+            return False
         if hasattr(self, "prev_dr_stage"):
             self.prev_dr_stage.setCurrentIndex(0)
         self.symptom_blurred.setChecked(False)
@@ -2313,16 +2471,23 @@ class ScreeningPage(QWidget):
             return {"status": "unchanged"}
 
         replace_record_id = None
-        existing_eye_record = self._find_existing_eye_record(pid, eye)
-        if existing_eye_record:
-            duplicate_action = self._prompt_duplicate_eye_action(pid, eye)
-            if duplicate_action == "cancel":
-                return {"status": "cancelled"}
-            if duplicate_action == "replace":
-                replace_record_id = int(existing_eye_record["id"])
-            elif duplicate_action == "new_session":
-                pid = self.generate_patient_id()
-                self._first_eye_result = None
+
+        # Check if this is a rescreening request (from Reports page)
+        if self._rescreen_replace_record_id is not None:
+            replace_record_id = self._rescreen_replace_record_id
+            self._rescreen_replace_record_id = None  # Clear flag after use
+        else:
+            # Standard duplicate detection
+            existing_eye_record = self._find_existing_eye_record(pid, eye)
+            if existing_eye_record:
+                duplicate_action = self._prompt_duplicate_eye_action(pid, eye)
+                if duplicate_action == "cancel":
+                    return {"status": "cancelled"}
+                if duplicate_action == "replace":
+                    replace_record_id = int(existing_eye_record["id"])
+                elif duplicate_action == "new_session":
+                    pid = self.generate_patient_id()
+                    self._first_eye_result = None
 
         pre_signature_payload = {
             "pid": pid,
@@ -2468,18 +2633,23 @@ class ScreeningPage(QWidget):
             # Auto-prompt to screen the other eye (only if first eye, not second)
             if not self._first_eye_result.get('_is_second_eye'):
                 opposite_eye = "Left Eye" if eye_label == "Right Eye" else "Right Eye"
-                box = QMessageBox(self)
-                box.setWindowTitle("Screen Other Eye")
-                box.setIcon(QMessageBox.Icon.Question)
-                box.setText(
-                    f"<b>{eye_label}</b> screening {'updated' if replace_record_id is not None else 'saved'} successfully.\n\n"
-                    f"Would you like to screen the <b>{opposite_eye}</b> now?"
-                )
-                continue_btn = box.addButton("Continue", QMessageBox.ButtonRole.AcceptRole)
-                box.addButton("Finish", QMessageBox.ButtonRole.RejectRole)
-                box.exec()
-                if box.clickedButton() == continue_btn:
-                    self.screen_other_eye()
+                # Check if opposite eye already has a saved record
+                opposite_eye_exists = self._find_existing_eye_record(pid, opposite_eye) is not None
+
+                # Only prompt if opposite eye hasn't been saved yet
+                if not opposite_eye_exists:
+                    box = QMessageBox(self)
+                    box.setWindowTitle("Screen Other Eye")
+                    box.setIcon(QMessageBox.Icon.Question)
+                    box.setText(
+                        f"<b>{eye_label}</b> screening {'updated' if replace_record_id is not None else 'saved'} successfully.\n\n"
+                        f"Would you like to screen the <b>{opposite_eye}</b> now?"
+                    )
+                    continue_btn = box.addButton("Screen Other Eye", QMessageBox.ButtonRole.AcceptRole)
+                    box.addButton("Just This Eye", QMessageBox.ButtonRole.RejectRole)
+                    box.exec()
+                    if box.clickedButton() == continue_btn:
+                        self.screen_other_eye()
             return {
                 "status": "replaced" if replace_record_id is not None else "saved",
                 "path": self._last_saved_source_path,
@@ -2496,7 +2666,7 @@ class ScreeningPage(QWidget):
             box = QMessageBox(self)
             box.setWindowTitle("Unsaved Result")
             box.setIcon(QMessageBox.Icon.Warning)
-            box.setText("Save this result before screening the other eye?")
+            box.setText(f"Save this <b>{eye_label}</b> result before screening the <b>{opposite_eye}</b>?")
             save_btn = box.addButton("Save and Continue", QMessageBox.ButtonRole.AcceptRole)
             skip_btn = box.addButton("Skip and Continue", QMessageBox.ButtonRole.DestructiveRole)
             cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
