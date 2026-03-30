@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QIcon
 
-from auth import DB_FILE
+from auth import DB_FILE, UserManager
 
 
 class ArchivedRecordsDialog(QDialog):
@@ -41,9 +41,11 @@ class ArchivedRecordsDialog(QDialog):
 
         title = QLabel("Archived Patient Records")
         title.setStyleSheet("font-size:22px;font-weight:700;color:#007bff;")
+        title.setAlignment(Qt.AlignCenter)
         subtitle = QLabel("Review archived screenings and restore them back into the active dashboard and reports.")
         subtitle.setStyleSheet("font-size:13px;color:#6c757d;")
         subtitle.setWordWrap(True)
+        subtitle.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
@@ -55,6 +57,7 @@ class ArchivedRecordsDialog(QDialog):
         controls.addWidget(self.search_input, 1)
         self.count_label = QLabel("0 archived")
         self.count_label.setStyleSheet("color:#6c757d;font-size:12px;")
+        self.count_label.setAlignment(Qt.AlignCenter)
         controls.addWidget(self.count_label)
         layout.addLayout(controls)
 
@@ -66,6 +69,7 @@ class ArchivedRecordsDialog(QDialog):
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
@@ -116,11 +120,20 @@ class ArchivedRecordsDialog(QDialog):
             self.table.insertRow(i)
             item = QTableWidgetItem(str(row["patient_id"] or ""))
             item.setData(Qt.UserRole, row["id"])
+            item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(i, 0, item)
-            self.table.setItem(i, 1, QTableWidgetItem(str(row["name"] or "")))
-            self.table.setItem(i, 2, QTableWidgetItem(str(row["result"] or "")))
-            self.table.setItem(i, 3, QTableWidgetItem(str(row["archived_at"] or "")))
-            self.table.setItem(i, 4, QTableWidgetItem(str(row["archived_by"] or "")))
+            name_item = QTableWidgetItem(str(row["name"] or ""))
+            name_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(i, 1, name_item)
+            result_item = QTableWidgetItem(str(row["result"] or ""))
+            result_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(i, 2, result_item)
+            archived_at_item = QTableWidgetItem(str(row["archived_at"] or ""))
+            archived_at_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(i, 3, archived_at_item)
+            archived_by_item = QTableWidgetItem(str(row["archived_by"] or ""))
+            archived_by_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(i, 4, archived_by_item)
         self.count_label.setText(f"{len(self._filtered_rows)} archived")
         self._update_restore_button()
 
@@ -274,6 +287,7 @@ class ReportsPage(QWidget):
         self._rep_subtitle_lbl = QLabel("View, filter, and export diabetic retinopathy screening outcomes.")
         self._rep_subtitle_lbl.setObjectName("pageSubtitle")
         self._rep_subtitle_lbl.setStyleSheet("font-size:13px;color:#6b7f95;")
+        self._rep_subtitle_lbl.setAlignment(Qt.AlignLeft)
 
         top_bar = QHBoxLayout()
         top_bar.setSpacing(10)
@@ -302,6 +316,10 @@ class ReportsPage(QWidget):
         self.report_btn.setEnabled(False)
         self.report_btn.clicked.connect(self.generate_report)
         top_bar.addWidget(self.report_btn)
+        self.referral_btn = QPushButton("Generate Referral")
+        self.referral_btn.setEnabled(False)
+        self.referral_btn.clicked.connect(self.generate_referral)
+        top_bar.addWidget(self.referral_btn)
         self.rescreen_btn = QPushButton("Rescreen")
         self.rescreen_btn.setEnabled(False)
         self.rescreen_btn.clicked.connect(self.rescreen_patient)
@@ -311,6 +329,7 @@ class ReportsPage(QWidget):
         root.addWidget(self._rep_subtitle_lbl)
         self.status_label = QLabel("Ready")
         self.status_label.setObjectName("statusLabel")
+        self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("color:#4f637a;background:#eaf1fb;border:1px solid #d4e2f3;border-radius:10px;padding:8px 12px;")
         root.addWidget(self.status_label)
 
@@ -330,6 +349,7 @@ class ReportsPage(QWidget):
         cl.addWidget(self.result_filter)
         self.filtered_count_label = QLabel("Total: 0")
         self.filtered_count_label.setObjectName("hintLabel")
+        self.filtered_count_label.setAlignment(Qt.AlignCenter)
         self.filtered_count_label.setStyleSheet("color:#62788f;font-size:12px;background:#f3f8ff;border:1px solid #dbe7f5;border-radius:8px;padding:6px 10px;")
         cl.addWidget(self.filtered_count_label)
         root.addWidget(self._controls_group)
@@ -354,6 +374,7 @@ class ReportsPage(QWidget):
         self.results_table.customContextMenuRequested.connect(self._open_results_context_menu)
         self.results_table.setMinimumHeight(420)
         self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.results_table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
@@ -362,7 +383,8 @@ class ReportsPage(QWidget):
         root.addWidget(self._results_group)
 
         self.setTabOrder(self.export_btn, self.report_btn)
-        self.setTabOrder(self.report_btn, self.search_input)
+        self.setTabOrder(self.report_btn, self.referral_btn)
+        self.setTabOrder(self.referral_btn, self.search_input)
         self.setTabOrder(self.search_input, self.result_filter)
         self.setTabOrder(self.result_filter, self.results_table)
         self._setup_action_buttons_ui()
@@ -380,12 +402,15 @@ class ReportsPage(QWidget):
     def _setup_action_buttons_ui(self):
         self._set_button_icon(self.export_btn, "export.svg")
         self._set_button_icon(self.report_btn, "generate_report.svg")
+        self._set_button_icon(self.referral_btn, "referral.svg")
         self._set_button_icon(self.rescreen_btn, "rescreen.svg")
         self.export_btn.setText("Export")
         self.report_btn.setText("Report")
+        self.referral_btn.setText("Referral")
         self.rescreen_btn.setText("Rescreen")
         self.export_btn.setToolTip("Export currently visible report rows to CSV")
         self.report_btn.setToolTip("Generate a detailed PDF report for the selected patient")
+        self.referral_btn.setToolTip("Generate a referral letter PDF for the selected patient")
         self.rescreen_btn.setToolTip("Rescreen the selected patient")
         if self.archived_records_btn is not None:
             self._set_button_icon(self.archived_records_btn, "archives.svg")
@@ -396,7 +421,7 @@ class ReportsPage(QWidget):
             self.archive_btn.setText("Archive")
             self.archive_btn.setToolTip("Archive the selected active patient record")
 
-        top_icon_buttons = [self.export_btn, self.report_btn, self.rescreen_btn]
+        top_icon_buttons = [self.export_btn, self.report_btn, self.referral_btn, self.rescreen_btn]
         if self.archive_btn is not None:
             top_icon_buttons.append(self.archive_btn)
         if self.archived_records_btn is not None:
@@ -538,17 +563,27 @@ class ReportsPage(QWidget):
             self.results_table.insertRow(i)
             item = QTableWidgetItem(str(row["patient_id"] or ""))
             item.setData(Qt.UserRole, row["selection_key"])
+            item.setTextAlignment(Qt.AlignCenter)
             self.results_table.setItem(i, 0, item)
-            self.results_table.setItem(i, 1, QTableWidgetItem(str(row["name"] or "")))
-            self.results_table.setItem(i, 2, QTableWidgetItem(str(row.get("eyes") or "")))
-            self.results_table.setItem(i, 3, QTableWidgetItem(str(row.get("screened_at") or "")))
+            name_item = QTableWidgetItem(str(row["name"] or ""))
+            name_item.setTextAlignment(Qt.AlignCenter)
+            self.results_table.setItem(i, 1, name_item)
+            eyes_item = QTableWidgetItem(str(row.get("eyes") or ""))
+            eyes_item.setTextAlignment(Qt.AlignCenter)
+            self.results_table.setItem(i, 2, eyes_item)
+            screened_at_item = QTableWidgetItem(str(row.get("screened_at") or ""))
+            screened_at_item.setTextAlignment(Qt.AlignCenter)
+            self.results_table.setItem(i, 3, screened_at_item)
             ri = QTableWidgetItem(str(row["result"] or ""))
+            ri.setTextAlignment(Qt.AlignCenter)
             if any(self._is_high_attention_result(item.get("result")) for item in (row.get("source_rows") or [])):
                 ri.setForeground(result_color("high"))
             elif all("no dr" in str(item.get("result") or "").lower() for item in (row.get("source_rows") or [])):
                 ri.setForeground(result_color("normal"))
             self.results_table.setItem(i, 4, ri)
-            self.results_table.setItem(i, 5, QTableWidgetItem(str(row["confidence"] or "")))
+            confidence_item = QTableWidgetItem(str(row["confidence"] or ""))
+            confidence_item.setTextAlignment(Qt.AlignCenter)
+            self.results_table.setItem(i, 5, confidence_item)
         self.results_table.setSortingEnabled(True)
         self.results_table.resizeRowsToContents()
         self.filtered_count_label.setText(f"Total: {len(self._filtered_rows)}")
@@ -576,6 +611,7 @@ class ReportsPage(QWidget):
 
         menu = QMenu(self)
         generate_action = menu.addAction("Generate Report")
+        referral_action = menu.addAction("Generate Referral")
         rescreen_action = menu.addAction("Rescreen Patient")
         archive_action = None
         if self.is_admin:
@@ -585,6 +621,8 @@ class ReportsPage(QWidget):
         chosen = menu.exec(self.results_table.viewport().mapToGlobal(pos))
         if chosen == generate_action:
             self.generate_report()
+        elif chosen == referral_action:
+            self.generate_referral()
         elif chosen == rescreen_action:
             self.rescreen_patient()
         elif archive_action is not None and chosen == archive_action:
@@ -599,6 +637,7 @@ class ReportsPage(QWidget):
     def _update_action_buttons(self):
         record = self._get_selected_record()
         self.report_btn.setEnabled(bool(record))
+        self.referral_btn.setEnabled(bool(record))
         self.rescreen_btn.setEnabled(bool(record))
         if self.is_admin:
             self.archive_btn.setEnabled(bool(record and not record["archived_at"]))
@@ -880,6 +919,114 @@ class ReportsPage(QWidget):
             unique_records.append(record)
         return sorted(unique_records, key=eye_sort_key)
 
+    def _prompt_referral_destination(self) -> "dict | None":
+        hospitals = UserManager.list_referral_hospitals(active_only=True)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Referral Destination")
+        dialog.resize(560, 320)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        subtitle = QLabel("Choose a trusted referral hospital or use Other for one-time manual entry.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("color:#4f637a;font-size:12px;")
+        layout.addWidget(subtitle)
+
+        hospital_label = QLabel("Referral Hospital")
+        hospital_label.setStyleSheet("font-size:11px;font-weight:700;color:#2f4054;")
+        hospital_combo = QComboBox()
+        hospital_combo.setMinimumHeight(36)
+        for item in hospitals:
+            dept = str(item.get("department") or "").strip()
+            label = str(item.get("hospital_name") or "").strip()
+            if dept:
+                label = f"{label} ({dept})"
+            if item.get("is_default"):
+                label = f"{label}  [Default]"
+            hospital_combo.addItem(label, item)
+        hospital_combo.addItem("Other (manual entry)", None)
+        if not hospitals:
+            hospital_combo.setCurrentIndex(0)
+        layout.addWidget(hospital_label)
+        layout.addWidget(hospital_combo)
+
+        manual_wrap = QWidget()
+        manual_layout = QVBoxLayout(manual_wrap)
+        manual_layout.setContentsMargins(0, 0, 0, 0)
+        manual_layout.setSpacing(8)
+
+        manual_name = QLineEdit()
+        manual_name.setPlaceholderText("Hospital name")
+        manual_department = QLineEdit()
+        manual_department.setPlaceholderText("Department (optional)")
+        manual_contact = QLineEdit()
+        manual_contact.setPlaceholderText("Contact person or phone (optional)")
+
+        manual_layout.addWidget(QLabel("Manual Referral Destination"))
+        manual_layout.addWidget(manual_name)
+        manual_layout.addWidget(manual_department)
+        manual_layout.addWidget(manual_contact)
+        layout.addWidget(manual_wrap)
+
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        cancel_btn = QPushButton("Cancel")
+        continue_btn = QPushButton("Continue")
+        continue_btn.setObjectName("primaryAction")
+        action_row.addWidget(cancel_btn)
+        action_row.addWidget(continue_btn)
+        layout.addLayout(action_row)
+
+        cancel_btn.clicked.connect(dialog.reject)
+        continue_btn.clicked.connect(dialog.accept)
+
+        def _is_manual_selected() -> bool:
+            return hospital_combo.currentData() is None
+
+        def _sync_manual_visibility():
+            manual_wrap.setVisible(_is_manual_selected())
+
+        hospital_combo.currentIndexChanged.connect(_sync_manual_visibility)
+        _sync_manual_visibility()
+
+        while True:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+
+            selected = hospital_combo.currentData()
+            if selected is None:
+                name = manual_name.text().strip()
+                if not name:
+                    QMessageBox.warning(dialog, "Referral Destination", "Hospital name is required for manual entry.")
+                    continue
+                department = manual_department.text().strip()
+                contact = manual_contact.text().strip()
+                display = name
+                if department:
+                    display = f"{display} ({department})"
+                return {
+                    "hospital_name": name,
+                    "department": department,
+                    "contact_person": contact,
+                    "display": display,
+                }
+
+            hospital_name = str(selected.get("hospital_name") or "").strip()
+            department = str(selected.get("department") or "").strip()
+            contact = str(selected.get("contact_person") or selected.get("phone") or "").strip()
+            display = hospital_name
+            if department:
+                display = f"{display} ({department})"
+            return {
+                "hospital_name": hospital_name,
+                "department": department,
+                "contact_person": contact,
+                "display": display,
+            }
+
     def generate_report(self):
         record = self._get_selected_record()
         if not record:
@@ -951,6 +1098,13 @@ class ReportsPage(QWidget):
         else:
             rec = "Consult a qualified ophthalmologist."
             summary = "Please consult a qualified ophthalmologist for further evaluation."
+
+        referral_destination = "&#8212;"
+        if result_raw in ("Moderate DR", "Severe DR", "Proliferative DR"):
+            selected_destination = self._prompt_referral_destination()
+            if selected_destination is None:
+                return
+            referral_destination = esc(selected_destination.get("display"))
 
         report_date = datetime.now().strftime("%B %d, %Y  %I:%M %p")
         screening_date = str(full.get("screened_at") or "").strip() or report_date
@@ -1244,6 +1398,7 @@ class ReportsPage(QWidget):
   <div style="padding:14px;border:1px solid #d1d5db;background:#f9fafb;margin-bottom:18px;">
     <div style="font-size:8pt;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Clinical Recommendation</div>
     <div style="font-size:9.5pt;color:#111827;font-weight:600;line-height:1.6;margin-bottom:14px;">&rarr; {rec}</div>
+        <div style="font-size:8.8pt;color:#374151;font-weight:600;margin-bottom:10px;">Referral Destination: <span style="font-weight:700;color:#111827;">{referral_destination}</span></div>
     <div style="border-top:1px solid #d1d5db;padding-top:12px;margin-top:12px;">
       <div style="font-size:9.5pt;color:#374151;line-height:1.75;">{summary}</div>
     </div>
@@ -1286,3 +1441,223 @@ class ReportsPage(QWidget):
         doc.print_(writer)
         self.status_label.setText(f"Report saved: {os.path.basename(path)}")
         QMessageBox.information(self, "Report Saved", f"Patient report saved to:\n{path}")
+
+    def generate_referral(self):
+        record = self._get_selected_record()
+        if not record:
+            QMessageBox.information(self, "Generate Referral", "Select a patient record to generate a referral letter.")
+            return
+
+        full = self._fetch_full_record(record["id"]) or record
+        result_raw = str(full.get("result") or "").strip()
+
+        if result_raw in ("No DR", "Mild DR"):
+            confirm = QMessageBox.question(
+                self,
+                "Generate Referral",
+                "This result is usually not urgent for specialist referral. Generate referral letter anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
+        selected_destination = self._prompt_referral_destination()
+        if selected_destination is None:
+            return
+
+        patient_name_raw = str(full.get("name") or "Patient").strip()
+        default_name = f"EyeShield_Referral_{patient_name_raw}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+        path, _ = QFileDialog.getSaveFileName(self, "Save Referral Letter", default_name, "PDF Files (*.pdf)")
+        if not path:
+            return
+
+        try:
+            from PySide6.QtGui import QPdfWriter, QPageSize, QPageLayout, QTextDocument
+            from PySide6.QtCore import QMarginsF
+        except ImportError:
+            QMessageBox.warning(self, "Generate Referral", "PDF generation requires PySide6 PDF support.")
+            return
+
+        def esc(v) -> str:
+            s = str(v or "").strip()
+            return escape(s) if s and s not in ("0", "None", "Select", "-") else "&#8212;"
+
+        def _to_long_date(value: str) -> str:
+            raw = str(value or "").strip()
+            if not raw:
+                return ""
+            for fmt in (
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d",
+                "%m/%d/%Y",
+                "%d/%m/%Y",
+                "%B %d, %Y",
+            ):
+                try:
+                    return datetime.strptime(raw, fmt).strftime("%B %d, %Y")
+                except ValueError:
+                    continue
+            return raw
+
+        referral_map = {
+            "No DR": ("Routine", "Annual follow-up and routine retinal screening."),
+            "Mild DR": ("Routine", "Repeat retinal assessment in 6-12 months is advised."),
+            "Moderate DR": ("Priority", "Refer to ophthalmology within 3 months for specialist evaluation."),
+            "Severe DR": ("Urgent", "Urgent ophthalmology review is advised due to high progression risk."),
+            "Proliferative DR": ("Immediate", "Immediate specialist referral is required for potential sight-threatening disease."),
+        }
+        urgency, rationale = referral_map.get(result_raw, ("Clinical Review", "Please evaluate for diabetic retinopathy management."))
+
+        report_date = datetime.now().strftime("%B %d, %Y")
+        profile = UserManager.get_user_profile(self.username) or {}
+        screened_by_name = str(profile.get("full_name") or self.display_name or os.environ.get("EYESHIELD_CURRENT_NAME", "") or self.username).strip()
+        screened_by_title = str(self.display_title or os.environ.get("EYESHIELD_CURRENT_TITLE", "")).strip()
+        screened_by_raw = (
+            f"{screened_by_name} ({screened_by_title})"
+            if screened_by_name and screened_by_title
+            else screened_by_name
+        )
+
+        destination_name = esc(selected_destination.get("hospital_name"))
+        destination_dept = esc(selected_destination.get("department"))
+        destination_contact = esc(selected_destination.get("contact_person"))
+
+        # Get doctor's contact info (email preferred, fallback to phone/contact)
+        doctor_contact = str(profile.get("contact") or "").strip()
+
+        screen_date_text = esc(_to_long_date(full.get("screened_at") or report_date))
+        patient_name = esc(full.get("name"))
+        patient_age = esc(full.get("age"))
+        patient_sex = esc(full.get("sex"))
+        patient_hba1c = esc(full.get("hba1c"))
+        patient_diabetes_type = esc(full.get("diabetes_type"))
+        patient_height = esc(full.get("height"))
+        patient_weight = esc(full.get("weight"))
+        patient_bmi = esc(full.get("bmi"))
+        patient_visual_acuity_left = esc(full.get("visual_acuity_left"))
+        patient_visual_acuity_right = esc(full.get("visual_acuity_right"))
+        patient_notes = esc(full.get("notes"))
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset=\"utf-8\">
+<style>
+  body {{
+        font-family: 'Times New Roman', 'Georgia', serif;
+        font-size: 11pt;
+        color: #1f2937;
+    margin: 0;
+    padding: 0;
+        line-height: 1.6;
+  }}
+    .sheet {{ padding: 26px 36px; }}
+    .header-grid {{ width: 100%; border-collapse: collapse; margin-bottom: 14px; }}
+    .header-grid td {{ width: 50%; vertical-align: top; padding: 0; }}
+    .header-block {{ font-size: 10.8pt; line-height: 1.65; }}
+    .right-meta {{ text-align: right; font-size: 10.8pt; line-height: 1.65; }}
+    .label {{ font-weight: 700; }}
+    .subject {{ margin: 14px 0 14px 0; font-size: 11.5pt; font-weight: 700; }}
+    .paragraph {{ margin: 0 0 12px 0; text-align: justify; line-height: 1.7; }}
+    .patient-box {{
+        border: 1px solid #d1d5db;
+        background: #fafafa;
+        padding: 12px 14px;
+        margin: 16px 0 16px 0;
+    }}
+    .patient-box table {{ width: 100%; border-collapse: collapse; }}
+    .patient-box td {{ padding: 5px 0; vertical-align: top; font-size: 10pt; line-height: 1.6; }}
+    .closing {{ margin-top: 24px; }}
+    .signature-line {{ margin-top: 34px; border-top: 1px solid #374151; width: 260px; }}
+</style>
+</head>
+<body>
+
+<div class=\"sheet\">
+    <table class=\"header-grid\">
+        <tr>
+            <td>
+                <div class=\"header-block\"><span class=\"label\">To:</span> {destination_name}</div>
+                <div class=\"header-block\"><span class=\"label\">Department:</span> {destination_dept}</div>
+                <div class=\"header-block\"><span class=\"label\">Attention:</span> {destination_contact}</div>
+            </td>
+            <td>
+                <div class=\"right-meta\"><span class=\"label\">Date:</span> {esc(report_date)}</div>
+            </td>
+        </tr>
+    </table>
+
+    <div class=\"subject\">Subject: Referral for Ophthalmology Evaluation - {patient_name}</div>
+
+    <div class=\"paragraph\">Dear Colleague,</div>
+
+    <div class=\"paragraph\">
+        I am referring this patient for specialist ophthalmology assessment following diabetic retinopathy screening.
+        The current screening result indicates <b>{esc(result_raw)}</b> with <b>{esc(urgency)}</b> referral priority.
+        Screening was performed on {screen_date_text}.
+    </div>
+
+    <div class=\"patient-box\">
+        <table>
+            <tr>
+                <td style=\"width:50%;\"><span class=\"label\">Patient Name:</span> {patient_name}</td>
+                <td><span class=\"label\">Age / Sex:</span> {patient_age} / {patient_sex}</td>
+            </tr>
+            <tr>
+                <td><span class=\"label\">Diabetes Type:</span> {patient_diabetes_type}</td>
+                <td><span class=\"label\">HbA1c:</span> {patient_hba1c}</td>
+            </tr>
+            <tr>
+                <td><span class=\"label\">Height:</span> {patient_height}</td>
+                <td><span class=\"label\">Weight:</span> {patient_weight}</td>
+            </tr>
+            <tr>
+                <td><span class=\"label\">BMI:</span> {patient_bmi}</td>
+                <td><span class=\"label\">Visual Acuity:</span> {patient_visual_acuity_left} / {patient_visual_acuity_right}</td>
+            </tr>
+            <tr>
+                <td colspan=\"2\"><span class=\"label\">Clinical History & Symptoms:</span> {patient_notes}</td>
+            </tr>
+            <tr>
+                <td colspan=\"2\"><span class=\"label\">Referral Reason:</span> {esc(rationale)}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class=\"paragraph\">
+        Kindly perform comprehensive ophthalmic evaluation and initiate management as
+        clinically indicated. Please provide recommendations and follow-up plan after
+        assessment. If you need to reach me, contact me at {esc(doctor_contact)}.
+    </div>
+
+    <div class=\"closing\">
+        <div style=\"margin-bottom:8px;\">Sincerely,</div>
+        <div class=\"signature-line\"></div>
+        <div style=\"margin-top:8px;\"><b>{esc(screened_by_raw)}</b></div>
+        <div style=\"font-size:10pt;color:#4b5563;\">Referring Clinician</div>
+    </div>
+</div>
+
+</body>
+</html>"""
+
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
+        doc.setHtml(html)
+
+        writer = QPdfWriter(path)
+        writer.setResolution(150)
+        try:
+            writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        except Exception:
+            pass
+        try:
+            writer.setPageMargins(QMarginsF(14, 10, 14, 16), QPageLayout.Unit.Millimeter)
+        except Exception:
+            pass
+
+        doc.print_(writer)
+        self.status_label.setText(f"Referral saved: {os.path.basename(path)}")
+        QMessageBox.information(self, "Referral Saved", f"Referral letter saved to:\n{path}")

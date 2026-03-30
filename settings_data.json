@@ -2,5 +2,5 @@
   "theme": "Light",
   "language": "English",
   "auto_logout_enabled": true,
-  "inactivity_timeout_minutes": 2
+  "inactivity_timeout_minutes": 3
 }

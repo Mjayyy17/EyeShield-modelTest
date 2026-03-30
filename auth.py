@@ -154,6 +154,18 @@ class UserManager:
         "treatment_regimen": "TEXT",
         "prev_dr_stage": "TEXT",
     }
+
+    _REFERRAL_HOSPITAL_COLUMNS = {
+        "department": "TEXT",
+        "contact_person": "TEXT",
+        "phone": "TEXT",
+        "email": "TEXT",
+        "address": "TEXT",
+        "is_active": "INTEGER DEFAULT 1",
+        "is_default": "INTEGER DEFAULT 0",
+        "created_at": "TEXT",
+        "updated_at": "TEXT",
+    }
     
     def __init__(self):
         self.conn = self._init_db()
@@ -214,6 +226,7 @@ class UserManager:
         )
 
         UserManager._ensure_patient_record_columns(conn)
+        UserManager._ensure_referral_hospitals_table(conn)
 
         conn.commit()
 
@@ -260,6 +273,224 @@ class UserManager:
             cur.execute(
                 f"ALTER TABLE patient_records ADD COLUMN {column_name} {column_type}"
             )
+
+    @staticmethod
+    def _ensure_referral_hospitals_table(conn: sqlite3.Connection) -> None:
+        """Create and normalize referral hospital master data."""
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS referral_hospitals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hospital_name TEXT NOT NULL,
+                department TEXT,
+                contact_person TEXT,
+                phone TEXT,
+                email TEXT,
+                address TEXT,
+                is_active INTEGER DEFAULT 1,
+                is_default INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+
+        cur.execute("PRAGMA table_info(referral_hospitals)")
+        existing_columns = {row[1] for row in cur.fetchall()}
+        for column_name, column_type in UserManager._REFERRAL_HOSPITAL_COLUMNS.items():
+            if column_name in existing_columns:
+                continue
+            cur.execute(
+                f"ALTER TABLE referral_hospitals ADD COLUMN {column_name} {column_type}"
+            )
+
+    @staticmethod
+    def ensure_referral_hospitals_table() -> bool:
+        conn = get_connection()
+        try:
+            UserManager._ensure_referral_hospitals_table(conn)
+            conn.commit()
+            success = True
+        except sqlite3.Error:
+            success = False
+        conn.close()
+        return success
+
+    @staticmethod
+    def list_referral_hospitals(active_only: bool = False) -> list[dict]:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            UserManager._ensure_referral_hospitals_table(conn)
+            if active_only:
+                cur.execute(
+                    """
+                    SELECT id, hospital_name, department, contact_person, phone, email, address, is_active, is_default, created_at, updated_at
+                    FROM referral_hospitals
+                    WHERE is_active = 1
+                    ORDER BY is_default DESC, hospital_name COLLATE NOCASE ASC
+                    """
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, hospital_name, department, contact_person, phone, email, address, is_active, is_default, created_at, updated_at
+                    FROM referral_hospitals
+                    ORDER BY is_default DESC, hospital_name COLLATE NOCASE ASC
+                    """
+                )
+            rows = cur.fetchall()
+        except sqlite3.Error:
+            rows = []
+        conn.close()
+
+        return [
+            {
+                "id": row[0],
+                "hospital_name": row[1] or "",
+                "department": row[2] or "",
+                "contact_person": row[3] or "",
+                "phone": row[4] or "",
+                "email": row[5] or "",
+                "address": row[6] or "",
+                "is_active": bool(row[7]),
+                "is_default": bool(row[8]),
+                "created_at": row[9] or "",
+                "updated_at": row[10] or "",
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def upsert_referral_hospital(
+        hospital_name: str,
+        department: str = "",
+        contact_person: str = "",
+        phone: str = "",
+        email: str = "",
+        address: str = "",
+        is_active: bool = True,
+        is_default: bool = False,
+        hospital_id: Optional[int] = None,
+    ) -> tuple[bool, str, Optional[int]]:
+        clean_name = str(hospital_name or "").strip()
+        if not clean_name:
+            return False, "Hospital name is required.", None
+
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            UserManager._ensure_referral_hospitals_table(conn)
+
+            if hospital_id:
+                cur.execute(
+                    """
+                    UPDATE referral_hospitals
+                    SET hospital_name = ?, department = ?, contact_person = ?, phone = ?, email = ?, address = ?,
+                        is_active = ?, is_default = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        clean_name,
+                        str(department or "").strip(),
+                        str(contact_person or "").strip(),
+                        str(phone or "").strip(),
+                        str(email or "").strip(),
+                        str(address or "").strip(),
+                        1 if is_active else 0,
+                        1 if is_default else 0,
+                        now_text,
+                        int(hospital_id),
+                    ),
+                )
+                if cur.rowcount <= 0:
+                    conn.close()
+                    return False, "Trusted hospital was not found.", None
+                target_id = int(hospital_id)
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO referral_hospitals (
+                        hospital_name, department, contact_person, phone, email, address,
+                        is_active, is_default, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        clean_name,
+                        str(department or "").strip(),
+                        str(contact_person or "").strip(),
+                        str(phone or "").strip(),
+                        str(email or "").strip(),
+                        str(address or "").strip(),
+                        1 if is_active else 0,
+                        1 if is_default else 0,
+                        now_text,
+                        now_text,
+                    ),
+                )
+                target_id = int(cur.lastrowid)
+
+            if is_default:
+                cur.execute(
+                    "UPDATE referral_hospitals SET is_default = 0 WHERE id <> ?",
+                    (target_id,),
+                )
+
+            if is_active:
+                cur.execute(
+                    "UPDATE referral_hospitals SET is_active = 1 WHERE id = ?",
+                    (target_id,),
+                )
+
+            conn.commit()
+        except sqlite3.Error as err:
+            conn.close()
+            return False, f"Unable to save trusted hospital: {err}", None
+
+        conn.close()
+        return True, "Trusted hospital saved.", target_id
+
+    @staticmethod
+    def delete_referral_hospital(hospital_id: int) -> tuple[bool, str]:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            UserManager._ensure_referral_hospitals_table(conn)
+            cur.execute("SELECT is_default FROM referral_hospitals WHERE id = ?", (int(hospital_id),))
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return False, "Trusted hospital was not found."
+
+            deleting_default = bool(row[0])
+            cur.execute("DELETE FROM referral_hospitals WHERE id = ?", (int(hospital_id),))
+            if cur.rowcount <= 0:
+                conn.close()
+                return False, "Trusted hospital was not found."
+
+            if deleting_default:
+                cur.execute(
+                    """
+                    UPDATE referral_hospitals
+                    SET is_default = 1
+                    WHERE id = (
+                        SELECT id FROM referral_hospitals
+                        WHERE is_active = 1
+                        ORDER BY hospital_name COLLATE NOCASE ASC
+                        LIMIT 1
+                    )
+                    """
+                )
+
+            conn.commit()
+        except sqlite3.Error as err:
+            conn.close()
+            return False, f"Unable to delete trusted hospital: {err}"
+
+        conn.close()
+        return True, "Trusted hospital deleted."
 
     @staticmethod
     def _migrate_users_json(conn: sqlite3.Connection) -> None:

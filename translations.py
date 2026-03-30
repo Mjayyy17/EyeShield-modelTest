@@ -47,8 +47,8 @@ TRANSLATIONS = {
         "dash_no_screenings": "No screenings yet. Run a new screening to see trends here.",
         "dash_insight_all_clear": "All screenings reviewed — no action needed. Continue routine monitoring.",
         # Camera
-        "cam_title": "Temporary Webcam",
-        "cam_subtitle": "Use this while fundus camera integration is in progress.",
+        "cam_title": "Camera Integration Sandbox",
+        "cam_subtitle": "Camera preview and diagnostics while fundus camera integration is in progress.",
         "cam_stopped": "Camera is stopped.",
         "cam_start": "Start Camera",
         "cam_stop": "Stop Camera",

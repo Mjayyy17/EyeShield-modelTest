@@ -12,14 +12,15 @@ import re
 
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QScrollArea, QFrame, QProgressBar, QMessageBox, QFileDialog, QStyle, QProgressDialog, QApplication
+    QScrollArea, QFrame, QProgressBar, QMessageBox, QFileDialog, QStyle, QProgressDialog, QApplication, QDialog
 )
-from PySide6.QtGui import QPixmap, QFont, QPainter, QColor, QIcon, QPalette, QImage
-from PySide6.QtCore import Qt, QSize, QEvent, QTimer, QByteArray, QBuffer, QIODevice
+from PySide6.QtGui import QPixmap, QFont, QPainter, QColor, QIcon, QPalette, QImage, QPdfWriter, QPageSize, QPageLayout, QTextDocument
+from PySide6.QtCore import Qt, QSize, QEvent, QTimer, QByteArray, QBuffer, QIODevice, QMarginsF
 
 from screening_styles import DR_COLORS, DR_RECOMMENDATIONS, PROGRESSBAR_STYLE
 from screening_widgets import ClickableImageLabel
 from safety_runtime import can_write_directory, get_free_space_mb, write_activity
+from auth import UserManager
 
 
 def _generate_explanation(
@@ -225,6 +226,14 @@ class ResultsWindow(QWidget):
         self.btn_report.setEnabled(False)
         self.btn_report.clicked.connect(self.generate_report)
         action_row.addWidget(self.btn_report)
+
+        self.btn_referral = QPushButton("Generate Referral")
+        self.btn_referral.setObjectName("neutralAction")
+        self.btn_referral.setMinimumHeight(36)
+        self.btn_referral.setIconSize(QSize(18, 18))
+        self.btn_referral.setEnabled(False)
+        self.btn_referral.clicked.connect(self.generate_referral)
+        action_row.addWidget(self.btn_referral)
 
         self.btn_screen_another = QPushButton("Screen Other Eye")
         self.btn_screen_another.setObjectName("neutralAction")
@@ -995,6 +1004,7 @@ class ResultsWindow(QWidget):
             and result_class not in ("Analyzing…", "Pending")
         )
         self.btn_report.setEnabled(_report_ready)
+        self.btn_referral.setEnabled(_report_ready)
 
     def mark_saved(self, name, eye_label, result_class):
         """Called by ScreeningPage after a successful save to update this panel."""
@@ -1013,45 +1023,12 @@ class ResultsWindow(QWidget):
             return
         page = self.parent_page
 
-        # Always show warning before going back (data will be cleared)
-        box = QMessageBox(self)
-        box.setWindowTitle("Back to Screening")
-        box.setIcon(QMessageBox.Icon.Warning)
-
-        is_saved = getattr(page, "_current_eye_saved", True)
-        if not is_saved:
-            # Unsaved results
-            box.setText(
-                "<b>Unsaved screening results will be lost.</b><br><br>"
-                "Going back will clear all patient data and start a new screening.<br><br>"
-                "Are you sure you want to go back?"
-            )
-            stay_btn = box.addButton("Stay on Results", QMessageBox.ButtonRole.RejectRole)
-            clear_btn = box.addButton("Discard & Go Back", QMessageBox.ButtonRole.DestructiveRole)
-        else:
-            # Saved results but still warns about clearing
-            box.setText(
-                "Going back will clear all patient data and start a new screening.<br><br>"
-                "Are you sure you want to go back?"
-            )
-            stay_btn = box.addButton("Stay on Results", QMessageBox.ButtonRole.RejectRole)
-            clear_btn = box.addButton("Clear & Go Back", QMessageBox.ButtonRole.DestructiveRole)
-
-        box.setDefaultButton(stay_btn)
-        box.exec()
-
-        if box.clickedButton() != clear_btn:
-            write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "User chose to stay")
-            return
-
-        write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "User confirmed clear and go back")
-
-        # Clear all fields and reset
-        page.reset_screening()
-
-        # Switch back to intake form
+        # Switch back to patient info form (stacked index 0) without clearing
         if hasattr(page, "stacked_widget"):
             page.stacked_widget.setCurrentIndex(0)
+            write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "User went back to patient info")
+        else:
+            write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "No stacked_widget found")
 
     def save_patient(self):
         if not self.parent_page or not hasattr(self.parent_page, "save_screening"):
@@ -1777,5 +1754,221 @@ img {{
         elif done_box.clickedButton() == open_folder_btn:
             try:
                 os.startfile(os.path.dirname(path))
+
+                def generate_referral(self):
+                    """Generate a referral letter PDF from screening results."""
+                    if self._current_result_class in ("Pending", "Analyzing…") or not self._current_image_path:
+                        QMessageBox.information(self, "Generate Referral", "No completed screening results to generate referral.")
+                        return
+
+                    if self.parent_page and not getattr(self.parent_page, "_current_eye_saved", False):
+                        QMessageBox.warning(self, "Generate Referral", "Please save the result before generating a referral")
+                        return
+
+                    # Get patient data from parent page
+                    patient_name_raw = str(self._current_patient_name or "Patient").strip()
+                    default_name = f"EyeShield_Referral_{patient_name_raw}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                    path, _ = QFileDialog.getSaveFileName(self, "Save Referral Letter", default_name, "PDF Files (*.pdf)")
+                    if not path:
+                        return
+
+                    try:
+                        from PySide6.QtGui import QPdfWriter, QPageSize, QPageLayout, QTextDocument
+                        from PySide6.QtCore import QMarginsF
+                    except ImportError:
+                        QMessageBox.warning(self, "Generate Referral", "PDF generation requires PySide6 PDF support.")
+                        return
+
+                    def esc(v) -> str:
+                        s = str(v or "").strip()
+                        return escape(s) if s and s not in ("0", "None", "Select", "-") else "&#8212;"
+
+                    def _to_long_date(value: str) -> str:
+                        raw = str(value or "").strip()
+                        if not raw:
+                            return ""
+                        for fmt in (
+                            "%Y-%m-%d %H:%M:%S",
+                            "%Y-%m-%d %H:%M",
+                            "%Y-%m-%d",
+                            "%m/%d/%Y",
+                            "%d/%m/%Y",
+                            "%B %d, %Y",
+                        ):
+                            try:
+                                return datetime.strptime(raw, fmt).strftime("%B %d, %Y")
+                            except ValueError:
+                                continue
+                        return raw
+
+                    # Get username from parent or default
+                    username = getattr(self.parent_page, "username", "clinician") if self.parent_page else "clinician"
+        
+                    # Fetch doctor's profile
+                    profile = UserManager.get_user_profile(username) or {}
+                    screened_by_name = str(profile.get("full_name") or profile.get("display_name") or username).strip()
+                    screened_by_title = str(profile.get("specialization") or "").strip()
+                    screened_by_raw = (
+                        f"{screened_by_name} ({screened_by_title})"
+                        if screened_by_name and screened_by_title
+                        else screened_by_name
+                    )
+                    doctor_contact = str(profile.get("contact") or "").strip()
+
+                    # Referral mapping
+                    referral_map = {
+                        "No DR": ("Routine", "Annual follow-up and routine retinal screening."),
+                        "Mild DR": ("Routine", "Repeat retinal assessment in 6-12 months is advised."),
+                        "Moderate DR": ("Priority", "Refer to ophthalmology within 3 months for specialist evaluation."),
+                        "Severe DR": ("Urgent", "Urgent ophthalmology review is advised due to high progression risk."),
+                        "Proliferative DR": ("Immediate", "Immediate specialist referral is required for potential sight-threatening disease."),
+                    }
+                    urgency, rationale = referral_map.get(self._current_result_class, ("Clinical Review", "Please evaluate for diabetic retinopathy management."))
+
+                    report_date = datetime.now().strftime("%B %d, %Y")
+                    screen_date_text = esc(_to_long_date(datetime.now().strftime("%B %d, %Y")))
+
+                    # Get patient data - try to get from parent page
+                    patient_data = {}
+                    if self.parent_page and hasattr(self.parent_page, "_patient_data"):
+                        patient_data = self.parent_page._patient_data or {}
+
+                    patient_age = esc(patient_data.get("age") or "")
+                    patient_sex = esc(patient_data.get("sex") or "")
+                    patient_hba1c = esc(patient_data.get("hba1c") or "")
+                    patient_diabetes_type = esc(patient_data.get("diabetes_type") or "")
+                    patient_height = esc(patient_data.get("height") or "")
+                    patient_weight = esc(patient_data.get("weight") or "")
+                    patient_bmi = esc(patient_data.get("bmi") or "")
+                    patient_visual_acuity_left = esc(patient_data.get("visual_acuity_left") or "")
+                    patient_visual_acuity_right = esc(patient_data.get("visual_acuity_right") or "")
+                    patient_notes = esc(patient_data.get("notes") or "")
+
+                    # Placeholder hospital info - user will select later
+                    hospital_name = "Ophthalmology Clinic"
+                    hospital_dept = "Ophthalmology Department"
+                    hospital_contact = "Ophthalmologist"
+
+                    html = f"""<!DOCTYPE html>
+            <html>
+            <head>
+            <meta charset=\"utf-8\">
+            <style>
+              body {{
+                    font-family: 'Times New Roman', 'Georgia', serif;
+                    font-size: 11pt;
+                    color: #1f2937;
+                margin: 0;
+                padding: 0;
+                    line-height: 1.6;
+              }}
+                .sheet {{ padding: 26px 36px; }}
+                .header-grid {{ width: 100%; border-collapse: collapse; margin-bottom: 14px; }}
+                .header-grid td {{ width: 50%; vertical-align: top; padding: 0; }}
+                .header-block {{ font-size: 10.8pt; line-height: 1.65; }}
+                .right-meta {{ text-align: right; font-size: 10.8pt; line-height: 1.65; }}
+                .label {{ font-weight: 700; }}
+                .subject {{ margin: 14px 0 14px 0; font-size: 11.5pt; font-weight: 700; }}
+                .paragraph {{ margin: 0 0 12px 0; text-align: justify; line-height: 1.7; }}
+                .patient-box {{
+                    border: 1px solid #d1d5db;
+                    background: #fafafa;
+                    padding: 12px 14px;
+                    margin: 16px 0 16px 0;
+                }}
+                .patient-box table {{ width: 100%; border-collapse: collapse; }}
+                .patient-box td {{ padding: 5px 0; vertical-align: top; font-size: 10pt; line-height: 1.6; }}
+                .closing {{ margin-top: 24px; }}
+                .signature-line {{ margin-top: 34px; border-top: 1px solid #374151; width: 260px; }}
+            </style>
+            </head>
+            <body>
+
+            <div class=\"sheet\">
+                <table class=\"header-grid\">
+                    <tr>
+                        <td>
+                            <div class=\"header-block\"><span class=\"label\">To:</span> {esc(hospital_name)}</div>
+                            <div class=\"header-block\"><span class=\"label\">Department:</span> {esc(hospital_dept)}</div>
+                            <div class=\"header-block\"><span class=\"label\">Attention:</span> {esc(hospital_contact)}</div>
+                        </td>
+                        <td>
+                            <div class=\"right-meta\"><span class=\"label\">Date:</span> {esc(report_date)}</div>
+                        </td>
+                    </tr>
+                </table>
+
+                <div class=\"subject\">Subject: Referral for Ophthalmology Evaluation - {patient_name_raw}</div>
+
+                <div class=\"paragraph\">Dear Colleague,</div>
+
+                <div class=\"paragraph\">
+                    I am referring this patient for specialist ophthalmology assessment following diabetic retinopathy screening.
+                    The current screening result indicates <b>{esc(self._current_result_class)}</b> with <b>{esc(urgency)}</b> referral priority.
+                    Screening was performed on {screen_date_text}.
+                </div>
+
+                <div class=\"patient-box\">
+                    <table>
+                        <tr>
+                            <td style=\"width:50%;\"><span class=\"label\">Patient Name:</span> {patient_name_raw}</td>
+                            <td><span class=\"label\">Age / Sex:</span> {patient_age} / {patient_sex}</td>
+                        </tr>
+                        <tr>
+                            <td><span class=\"label\">Diabetes Type:</span> {patient_diabetes_type}</td>
+                            <td><span class=\"label\">HbA1c:</span> {patient_hba1c}</td>
+                        </tr>
+                        <tr>
+                            <td><span class=\"label\">Height:</span> {patient_height}</td>
+                            <td><span class=\"label\">Weight:</span> {patient_weight}</td>
+                        </tr>
+                        <tr>
+                            <td><span class=\"label\">BMI:</span> {patient_bmi}</td>
+                            <td><span class=\"label\">Visual Acuity:</span> {patient_visual_acuity_left} / {patient_visual_acuity_right}</td>
+                        </tr>
+                        <tr>
+                            <td colspan=\"2\"><span class=\"label\">Clinical History & Symptoms:</span> {patient_notes}</td>
+                        </tr>
+                        <tr>
+                            <td colspan=\"2\"><span class=\"label\">Referral Reason:</span> {esc(rationale)}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class=\"paragraph\">
+                    Kindly perform comprehensive ophthalmic evaluation and initiate management as
+                    clinically indicated. Please provide recommendations and follow-up plan after
+                    assessment. If you need to reach me, contact me at {esc(doctor_contact)}.
+                </div>
+
+                <div class=\"closing\">
+                    <div style=\"margin-bottom:8px;\">Sincerely,</div>
+                    <div class=\"signature-line\"></div>
+                    <div style=\"margin-top:8px;\"><b>{esc(screened_by_raw)}</b></div>
+                    <div style=\"font-size:10pt;color:#4b5563;\">Referring Clinician</div>
+                </div>
+            </div>
+
+            </body>
+            </html>"""
+
+                    doc = QTextDocument()
+                    doc.setDocumentMargin(0)
+                    doc.setHtml(html)
+
+                    writer = QPdfWriter(path)
+                    writer.setResolution(150)
+                    try:
+                        writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+                    except Exception:
+                        pass
+                    try:
+                        writer.setPageMargins(QMarginsF(14, 10, 14, 16), QPageLayout.Unit.Millimeter)
+                    except Exception:
+                        pass
+
+                    doc.print_(writer)
+                    write_activity("INFO", "REFERRAL_GENERATED", f"path={path}")
+                    QMessageBox.information(self, "Referral Saved", f"Referral letter saved to:\n{path}")
             except Exception:
                 pass
