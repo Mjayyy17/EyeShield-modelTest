@@ -1267,7 +1267,13 @@ class UserManager:
         return clinicians
 
     @staticmethod
-    def reassign_referral(referral_id: str, new_assignee_username: str, acting_username: str, reason: str = "") -> bool:
+    def reassign_referral(
+        referral_id: str,
+        new_assignee_username: str,
+        acting_username: str,
+        reason: str = "",
+        reason_code: str = "",
+    ) -> bool:
         """Reassign referral to another clinician and preserve audit note."""
         return ReferralService.reassign_referral(
             get_connection=get_connection,
@@ -1276,6 +1282,7 @@ class UserManager:
             new_assignee_username=new_assignee_username,
             acting_username=acting_username,
             reason=reason,
+            reason_code=reason_code,
         )
 
     @staticmethod
@@ -1357,5 +1364,50 @@ class UserManager:
             success = False
         conn.close()
         return success
+
+    @staticmethod
+    def get_referral_reason_taxonomy() -> dict:
+        return {
+            "reassignment": dict(ReferralService.REASSIGNMENT_REASONS),
+            "completion": dict(ReferralService.COMPLETION_REASONS),
+        }
+
+    @staticmethod
+    def get_referral_notifications(username: str, include_read: bool = False, limit: int = 100) -> list[dict]:
+        return ReferralService.get_notifications(
+            get_connection=get_connection,
+            username=username,
+            include_read=include_read,
+            limit=limit,
+        )
+
+    @staticmethod
+    def mark_all_referral_notifications_read(username: str) -> int:
+        return ReferralService.mark_all_notifications_read(
+            get_connection=get_connection,
+            username=username,
+        )
+
+    @staticmethod
+    def get_referral_kpis(username: str) -> dict:
+        return ReferralService.get_referral_kpis(get_connection=get_connection, username=username)
+
+    @staticmethod
+    def update_referral_status_with_reason(
+        referral_id: str,
+        new_status: str,
+        actor_username: str = "",
+        reason_code: str = "",
+        reason_note: str = "",
+    ) -> bool:
+        return ReferralService.update_referral_status(
+            get_connection=get_connection,
+            add_activity_log=UserManager.add_activity_log,
+            referral_id=referral_id,
+            new_status=new_status,
+            actor_username=actor_username,
+            reason_code=reason_code,
+            reason_note=reason_note,
+        )
 
 

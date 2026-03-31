@@ -2,8 +2,8 @@
 
 import json
 import sqlite3
-from datetime import datetime
-from typing import Callable, Optional
+from datetime import datetime, timedelta
+from typing import Callable
 
 
 class ReferralService:
@@ -20,6 +20,20 @@ class ReferralService:
         "archived": set(),
     }
     NOTIFY_VISIBLE_STATUSES = ("pending", "viewed")
+    REASSIGNMENT_REASONS = {
+        "subspecialty_needed": "Subspecialty expertise needed",
+        "workload_rebalance": "Workload rebalance",
+        "schedule_unavailable": "Schedule unavailable",
+        "urgent_escalation": "Urgent escalation",
+        "other": "Other clinical reason",
+    }
+    COMPLETION_REASONS = {
+        "treated_referred_out": "Treated / referred out",
+        "follow_up_plan_set": "Follow-up plan set",
+        "diagnosis_confirmed": "Diagnosis confirmed",
+        "no_action_required": "No action required",
+        "other": "Other completion reason",
+    }
 
     @staticmethod
     def _now() -> str:
@@ -34,6 +48,21 @@ class ReferralService:
         if lowered.startswith("dr. ") or lowered.startswith("dr "):
             return value
         return f"Dr. {value}"
+
+    @staticmethod
+    def _default_due_at(urgency: str, assigned_at: str) -> str:
+        urgency_value = str(urgency or "normal").strip().lower()
+        try:
+            base = datetime.strptime(str(assigned_at or ""), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            base = datetime.now()
+        if urgency_value == "critical":
+            due = base + timedelta(hours=24)
+        elif urgency_value == "urgent":
+            due = base + timedelta(hours=72)
+        else:
+            due = base + timedelta(days=30)
+        return due.strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def _is_clinician(conn: sqlite3.Connection, username: str) -> bool:
@@ -287,8 +316,8 @@ class ReferralService:
                 """
                 INSERT INTO referral_assignments
                 (referral_id, episode_no, assigned_to_username, assigned_by_username, assigned_at, patient_name, urgency, notes, status,
-                 created_at, updated_at, last_status_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                 created_at, updated_at, last_status_at, due_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
                 """,
                 (
                     referral_key,
@@ -302,6 +331,7 @@ class ReferralService:
                     now,
                     now,
                     now,
+                    ReferralService._default_due_at(urgency_value, now),
                 ),
             )
             ReferralService._record_event(
@@ -485,6 +515,8 @@ class ReferralService:
         referral_id: str,
         new_status: str,
         actor_username: str = "",
+        reason_code: str = "",
+        reason_note: str = "",
     ) -> bool:
         referral_key = str(referral_id or "").strip()
         target_status = str(new_status or "").strip().lower()
@@ -517,6 +549,11 @@ class ReferralService:
             if target_status not in ReferralService.STATUS_TRANSITIONS.get(current_status, set()):
                 conn.close()
                 return False
+            reason_value = str(reason_code or "").strip().lower()
+            reason_text = str(reason_note or "").strip()
+            if target_status == "completed" and reason_value not in ReferralService.COMPLETION_REASONS:
+                conn.close()
+                return False
 
             now = ReferralService._now()
             close_time = now if target_status in {"completed", "archived"} else None
@@ -537,7 +574,15 @@ class ReferralService:
                 actor_username=actor,
                 from_status=current_status,
                 to_status=target_status,
-                details=f"Status changed from {current_status} to {target_status}",
+                details=json.dumps(
+                    {
+                        "from_status": current_status,
+                        "to_status": target_status,
+                        "reason_code": reason_value,
+                        "reason_label": ReferralService.COMPLETION_REASONS.get(reason_value, ""),
+                        "reason_note": reason_text,
+                    }
+                ),
             )
             if assigned_to and actor and assigned_to != actor:
                 ReferralService._notify(
@@ -634,14 +679,18 @@ class ReferralService:
         new_assignee_username: str,
         acting_username: str,
         reason: str = "",
+        reason_code: str = "",
     ) -> bool:
         referral_key = str(referral_id or "").strip()
         new_assignee = str(new_assignee_username or "").strip()
         actor = str(acting_username or "").strip()
         reason_text = str(reason or "").strip() or "Reassigned for workflow continuity"
+        reason_code_value = str(reason_code or "").strip().lower()
         if not referral_key or not new_assignee or not actor:
             return False
         if new_assignee == actor:
+            return False
+        if reason_code_value not in ReferralService.REASSIGNMENT_REASONS:
             return False
 
         conn = get_connection()
@@ -686,7 +735,7 @@ class ReferralService:
             timestamp = ReferralService._now()
             note_line = (
                 f"[{timestamp}] {actor}: Reassigned from {current_assignee or 'N/A'} "
-                f"to {new_assignee}. Reason: {reason_text}"
+                f"to {new_assignee}. Reason: [{ReferralService.REASSIGNMENT_REASONS[reason_code_value]}] {reason_text}"
             )
             merged_notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
             cur.execute(
@@ -732,6 +781,8 @@ class ReferralService:
                     {
                         "from_assignee": current_assignee,
                         "to_assignee": new_assignee,
+                        "reason_code": reason_code_value,
+                        "reason_label": ReferralService.REASSIGNMENT_REASONS[reason_code_value],
                         "reason": reason_text,
                     }
                 ),
@@ -842,6 +893,61 @@ class ReferralService:
         ]
 
     @staticmethod
+    def get_notifications(
+        get_connection: Callable[[], sqlite3.Connection],
+        username: str,
+        include_read: bool = False,
+        limit: int = 100,
+    ) -> list[dict]:
+        user = str(username or "").strip()
+        if not user:
+            return []
+        safe_limit = max(1, min(int(limit), 500))
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            ReferralService.ensure_schema(conn)
+            if include_read:
+                cur.execute(
+                    """
+                    SELECT id, referral_id, category, title, message, is_read, created_at, read_at
+                    FROM notification_inbox
+                    WHERE username = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (user, safe_limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, referral_id, category, title, message, is_read, created_at, read_at
+                    FROM notification_inbox
+                    WHERE username = ? AND is_read = 0
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (user, safe_limit),
+                )
+            rows = cur.fetchall()
+        except sqlite3.Error:
+            rows = []
+        conn.close()
+        return [
+            {
+                "id": row[0],
+                "referral_id": row[1],
+                "category": row[2],
+                "title": row[3],
+                "message": row[4],
+                "is_read": bool(row[5]),
+                "created_at": row[6],
+                "read_at": row[7] or "",
+            }
+            for row in rows
+        ]
+
+    @staticmethod
     def mark_notification_read(get_connection: Callable[[], sqlite3.Connection], notification_id: int, username: str) -> bool:
         user = str(username or "").strip()
         if not user:
@@ -864,3 +970,102 @@ class ReferralService:
             success = False
         conn.close()
         return success
+
+    @staticmethod
+    def mark_all_notifications_read(get_connection: Callable[[], sqlite3.Connection], username: str) -> int:
+        user = str(username or "").strip()
+        if not user:
+            return 0
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            ReferralService.ensure_schema(conn)
+            cur.execute(
+                """
+                UPDATE notification_inbox
+                SET is_read = 1, read_at = ?
+                WHERE username = ? AND is_read = 0
+                """,
+                (ReferralService._now(), user),
+            )
+            conn.commit()
+            updated = int(cur.rowcount or 0)
+        except sqlite3.Error:
+            updated = 0
+        conn.close()
+        return updated
+
+    @staticmethod
+    def get_referral_kpis(get_connection: Callable[[], sqlite3.Connection], username: str) -> dict:
+        user = str(username or "").strip()
+        if not user:
+            return {"avg_turnaround_hours": 0.0, "reassignment_rate_pct": 0.0, "overdue_count": 0}
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            ReferralService.ensure_schema(conn)
+            cur.execute(
+                """
+                SELECT assigned_at, closed_at
+                FROM referral_assignments
+                WHERE (assigned_to_username = ? OR assigned_by_username = ?)
+                  AND status = 'completed'
+                  AND assigned_at IS NOT NULL
+                  AND closed_at IS NOT NULL
+                """,
+                (user, user),
+            )
+            rows = cur.fetchall()
+            durations = []
+            for row in rows:
+                try:
+                    start = datetime.strptime(str(row[0] or ""), "%Y-%m-%d %H:%M:%S")
+                    end = datetime.strptime(str(row[1] or ""), "%Y-%m-%d %H:%M:%S")
+                    durations.append((end - start).total_seconds() / 3600.0)
+                except ValueError:
+                    continue
+            avg_turnaround = round(sum(durations) / len(durations), 2) if durations else 0.0
+
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM referral_assignments
+                WHERE assigned_by_username = ?
+                """,
+                (user,),
+            )
+            total_created = int((cur.fetchone() or [0])[0])
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM referral_events
+                WHERE actor_username = ? AND event_type = 'reassigned'
+                """,
+                (user,),
+            )
+            reassign_events = int((cur.fetchone() or [0])[0])
+            reassignment_rate = round((reassign_events / total_created) * 100.0, 2) if total_created > 0 else 0.0
+
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM referral_assignments
+                WHERE assigned_to_username = ?
+                  AND status NOT IN ('completed', 'archived')
+                  AND due_at IS NOT NULL
+                  AND TRIM(due_at) <> ''
+                  AND due_at < ?
+                """,
+                (user, ReferralService._now()),
+            )
+            overdue_count = int((cur.fetchone() or [0])[0])
+        except sqlite3.Error:
+            avg_turnaround = 0.0
+            reassignment_rate = 0.0
+            overdue_count = 0
+        conn.close()
+        return {
+            "avg_turnaround_hours": avg_turnaround,
+            "reassignment_rate_pct": reassignment_rate,
+            "overdue_count": overdue_count,
+        }

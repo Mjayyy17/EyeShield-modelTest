@@ -1436,8 +1436,62 @@ class EyeShieldApp(QMainWindow):
         created_v.addWidget(created_title)
         created_v.addWidget(self.ref_created_by_me_value)
 
+        kpi_turnaround_card = QWidget()
+        kpi_turnaround_card.setObjectName("refTurnaroundCard")
+        kpi_turnaround_card.setStyleSheet(
+            "QWidget#refTurnaroundCard {"
+            "background: white; border: 1px solid #dbe3ee; border-radius: 10px;"
+            "}"
+        )
+        kpi_turnaround_v = QVBoxLayout(kpi_turnaround_card)
+        kpi_turnaround_v.setContentsMargins(14, 10, 14, 10)
+        kpi_turnaround_v.setSpacing(4)
+        kpi_turnaround_title = QLabel("AVG TURNAROUND (HRS)")
+        kpi_turnaround_title.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; background: transparent;")
+        self.ref_avg_turnaround_value = QLabel("0.0")
+        self.ref_avg_turnaround_value.setStyleSheet("color: #1f2937; font-size: 24px; font-weight: 800; background: transparent;")
+        kpi_turnaround_v.addWidget(kpi_turnaround_title)
+        kpi_turnaround_v.addWidget(self.ref_avg_turnaround_value)
+
+        kpi_overdue_card = QWidget()
+        kpi_overdue_card.setObjectName("refOverdueCard")
+        kpi_overdue_card.setStyleSheet(
+            "QWidget#refOverdueCard {"
+            "background: white; border: 1px solid #dbe3ee; border-radius: 10px;"
+            "}"
+        )
+        kpi_overdue_v = QVBoxLayout(kpi_overdue_card)
+        kpi_overdue_v.setContentsMargins(14, 10, 14, 10)
+        kpi_overdue_v.setSpacing(4)
+        kpi_overdue_title = QLabel("OVERDUE")
+        kpi_overdue_title.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; background: transparent;")
+        self.ref_overdue_count_value = QLabel("0")
+        self.ref_overdue_count_value.setStyleSheet("color: #b91c1c; font-size: 24px; font-weight: 800; background: transparent;")
+        kpi_overdue_v.addWidget(kpi_overdue_title)
+        kpi_overdue_v.addWidget(self.ref_overdue_count_value)
+
+        kpi_reassign_card = QWidget()
+        kpi_reassign_card.setObjectName("refReassignCard")
+        kpi_reassign_card.setStyleSheet(
+            "QWidget#refReassignCard {"
+            "background: white; border: 1px solid #dbe3ee; border-radius: 10px;"
+            "}"
+        )
+        kpi_reassign_v = QVBoxLayout(kpi_reassign_card)
+        kpi_reassign_v.setContentsMargins(14, 10, 14, 10)
+        kpi_reassign_v.setSpacing(4)
+        kpi_reassign_title = QLabel("REASSIGN RATE")
+        kpi_reassign_title.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; background: transparent;")
+        self.ref_reassign_rate_value = QLabel("0%")
+        self.ref_reassign_rate_value.setStyleSheet("color: #1f2937; font-size: 24px; font-weight: 800; background: transparent;")
+        kpi_reassign_v.addWidget(kpi_reassign_title)
+        kpi_reassign_v.addWidget(self.ref_reassign_rate_value)
+
         stats_row.addWidget(assigned_card, 1)
         stats_row.addWidget(created_card, 1)
+        stats_row.addWidget(kpi_turnaround_card, 1)
+        stats_row.addWidget(kpi_overdue_card, 1)
+        stats_row.addWidget(kpi_reassign_card, 1)
         layout.addLayout(stats_row)
 
         feed_card = QWidget()
@@ -1454,6 +1508,22 @@ class EyeShieldApp(QMainWindow):
         feed_title = QLabel("RECENT REFERRAL ACTIVITY")
         feed_title.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; background: transparent;")
         feed_v.addWidget(feed_title)
+
+        inbox_controls = QHBoxLayout()
+        inbox_controls.setSpacing(8)
+        self.ref_notification_badge = QLabel("Inbox: 0 unread")
+        self.ref_notification_badge.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 700; background: transparent;")
+        inbox_controls.addWidget(self.ref_notification_badge)
+        inbox_controls.addStretch(1)
+        self.ref_open_inbox_btn = QPushButton("Open Inbox")
+        self.ref_open_inbox_btn.setObjectName("neutralBtn")
+        self.ref_open_inbox_btn.clicked.connect(self._open_referral_inbox_dialog)
+        self.ref_mark_all_read_btn = QPushButton("Mark All Read")
+        self.ref_mark_all_read_btn.setObjectName("neutralBtn")
+        self.ref_mark_all_read_btn.clicked.connect(self._mark_all_referral_notifications_read)
+        inbox_controls.addWidget(self.ref_open_inbox_btn)
+        inbox_controls.addWidget(self.ref_mark_all_read_btn)
+        feed_v.addLayout(inbox_controls)
 
         self.referrals_table = QTableWidget(0, 7)
         self.referrals_table.setHorizontalHeaderLabels(
@@ -1518,6 +1588,16 @@ class EyeShieldApp(QMainWindow):
             self.ref_assigned_to_me_value.setText(str(assigned_to_me_count))
         if hasattr(self, "ref_created_by_me_value"):
             self.ref_created_by_me_value.setText(str(created_by_me_count))
+        kpis = UserManager.get_referral_kpis(self.username) or {}
+        if hasattr(self, "ref_avg_turnaround_value"):
+            self.ref_avg_turnaround_value.setText(str(kpis.get("avg_turnaround_hours", 0.0)))
+        if hasattr(self, "ref_overdue_count_value"):
+            self.ref_overdue_count_value.setText(str(kpis.get("overdue_count", 0)))
+        if hasattr(self, "ref_reassign_rate_value"):
+            self.ref_reassign_rate_value.setText(f"{kpis.get('reassignment_rate_pct', 0.0)}%")
+        unread_count = len(UserManager.get_referral_notifications(self.username, include_read=False, limit=200))
+        if hasattr(self, "ref_notification_badge"):
+            self.ref_notification_badge.setText(f"Inbox: {unread_count} unread")
 
         self.referrals_table.clearContents()
         self.referrals_table.setRowCount(0)
@@ -1677,7 +1757,23 @@ class EyeShieldApp(QMainWindow):
             return
 
         note_text = ""
+        reason_code = ""
         if require_note:
+            taxonomy = UserManager.get_referral_reason_taxonomy()
+            completion_reasons = taxonomy.get("completion", {})
+            reason_labels = list(completion_reasons.values())
+            selected_reason, picked = QInputDialog.getItem(
+                self,
+                "Completion Reason",
+                "Select completion reason:",
+                reason_labels,
+                0,
+                False,
+            )
+            if not picked or not selected_reason:
+                return
+            inverse = {label: code for code, label in completion_reasons.items()}
+            reason_code = inverse.get(selected_reason, "")
             note_text, ok = QInputDialog.getMultiLineText(
                 self,
                 "Complete Referral",
@@ -1691,7 +1787,17 @@ class EyeShieldApp(QMainWindow):
                 QMessageBox.warning(self, "Referral", "Completion summary is required.")
                 return
 
-        if not UserManager.update_referral_status(referral_id, new_status, self.username):
+        if new_status == "completed":
+            success = UserManager.update_referral_status_with_reason(
+                referral_id=referral_id,
+                new_status=new_status,
+                actor_username=self.username,
+                reason_code=reason_code,
+                reason_note=note_text,
+            )
+        else:
+            success = UserManager.update_referral_status(referral_id, new_status, self.username)
+        if not success:
             QMessageBox.warning(self, "Referral", "Failed to update referral status.")
             return
 
@@ -1728,10 +1834,25 @@ class EyeShieldApp(QMainWindow):
         index = options.index(selected)
         target = clinicians[index].get("username")
 
+        taxonomy = UserManager.get_referral_reason_taxonomy()
+        reassignment_reasons = taxonomy.get("reassignment", {})
+        reason_labels = list(reassignment_reasons.values())
+        selected_reason, ok = QInputDialog.getItem(
+            self,
+            "Reassignment Reason",
+            "Select reassignment reason:",
+            reason_labels,
+            0,
+            False,
+        )
+        if not ok or not selected_reason:
+            return
+        inverse = {label: code for code, label in reassignment_reasons.items()}
+        reason_code = inverse.get(selected_reason, "")
         reason, ok = QInputDialog.getMultiLineText(
             self,
             "Reassignment Reason",
-            "Reason for reassignment (required):",
+            "Additional context (required):",
             "",
         )
         if not ok:
@@ -1741,11 +1862,78 @@ class EyeShieldApp(QMainWindow):
             QMessageBox.warning(self, "Referral", "Reassignment reason is required.")
             return
 
-        if UserManager.reassign_referral(referral_id, target, self.username, reason):
+        if UserManager.reassign_referral(referral_id, target, self.username, reason, reason_code):
             QMessageBox.information(self, "Referral", "Referral reassigned successfully.")
             self.refresh_referrals_page()
         else:
             QMessageBox.warning(self, "Referral", "Unable to reassign referral.")
+
+    def _open_referral_inbox_dialog(self):
+        notifications = UserManager.get_referral_notifications(self.username, include_read=True, limit=300)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Referral Notification Inbox")
+        dialog.resize(820, 480)
+        v = QVBoxLayout(dialog)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(8)
+        title = QLabel("Referral Notifications")
+        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #1f2937;")
+        v.addWidget(title)
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["Status", "Title", "Message", "Referral ID", "Created At"])
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        table.setRowCount(len(notifications))
+        for idx, item in enumerate(notifications):
+            status = "Read" if item.get("is_read") else "Unread"
+            row_values = [
+                status,
+                str(item.get("title") or ""),
+                str(item.get("message") or ""),
+                str(item.get("referral_id") or "-"),
+                str(item.get("created_at") or ""),
+            ]
+            for col, value in enumerate(row_values):
+                qitem = QTableWidgetItem(value)
+                qitem.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                if col == 0 and status == "Unread":
+                    qitem.setForeground(QColor("#b45309"))
+                table.setItem(idx, col, qitem)
+        v.addWidget(table, 1)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        mark_selected_btn = QPushButton("Mark Selected Read")
+        close_btn = QPushButton("Close")
+        buttons.addWidget(mark_selected_btn)
+        buttons.addWidget(close_btn)
+        v.addLayout(buttons)
+
+        def _mark_selected():
+            row = table.currentRow()
+            if row < 0:
+                return
+            notif_id = notifications[row].get("id")
+            if notif_id and UserManager.mark_referral_notification_read(int(notif_id), self.username):
+                self.refresh_referrals_page()
+                dialog.accept()
+
+        mark_selected_btn.clicked.connect(_mark_selected)
+        close_btn.clicked.connect(dialog.accept)
+        dialog.exec()
+
+    def _mark_all_referral_notifications_read(self):
+        updated = UserManager.mark_all_referral_notifications_read(self.username)
+        if updated > 0:
+            QMessageBox.information(self, "Referral Inbox", f"Marked {updated} notification(s) as read.")
+        self.refresh_referrals_page()
 
     def _show_referral_details(self, patient_name: str):
         """Fetch patient record by name and display referral details with fundus image."""
