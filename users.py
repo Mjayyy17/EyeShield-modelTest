@@ -917,7 +917,7 @@ class UsersPage(QWidget):
         users_hdr.addStretch()
         table_vbox.addLayout(users_hdr)
 
-        self.users_table = QTableWidget(0, 6)
+        self.users_table = QTableWidget(0, 7)
         self.users_table.setObjectName("usrUsersTable")
         self.users_table.setHorizontalHeaderLabels([
             "Name", "Username", "Contact", "Availability Time", "Availability Days", "Role", "Status"
@@ -931,6 +931,7 @@ class UsersPage(QWidget):
         self.users_table.setShowGrid(True)
         self.users_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.users_table.customContextMenuRequested.connect(self._open_user_context_menu)
+        self.users_table.itemSelectionChanged.connect(self._sync_status_action_labels)
         self.users_table.cellDoubleClicked.connect(self._edit_availability_from_cell)
         self.users_table.horizontalHeader().setStretchLastSection(False)
         self.users_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -1059,7 +1060,7 @@ class UsersPage(QWidget):
         edit_availability_action = menu.addAction("Edit Availability")
         menu.addSeparator()
         change_role_action = menu.addAction("Change Role")
-        toggle_active_action = menu.addAction("Set Active/Inactive")
+        toggle_active_action = menu.addAction(self._status_action_text_for_selected_row())
         reset_password_action = menu.addAction("Reset Password")
         menu.addSeparator()
         delete_action = menu.addAction("Delete User")
@@ -1075,6 +1076,20 @@ class UsersPage(QWidget):
             self.reset_selected_password()
         elif chosen == delete_action:
             self.delete_user()
+
+    def _status_action_text_for_selected_row(self) -> str:
+        row = self.users_table.currentRow()
+        if row < 0:
+            return "Set Active/Inactive"
+        status_item = self.users_table.item(row, 6)
+        if not status_item:
+            return "Set Active/Inactive"
+        is_active = bool(status_item.data(Qt.UserRole))
+        return "Set Inactive" if is_active else "Set Active"
+
+    def _sync_status_action_labels(self):
+        if hasattr(self, "toggle_active_btn"):
+            self.toggle_active_btn.setText(self._status_action_text_for_selected_row())
 
     def _edit_availability_from_cell(self, row, column):
         if column in (3, 4):
@@ -1302,6 +1317,7 @@ class UsersPage(QWidget):
             self.users_table.setItem(row, 5, role_item)
             self.users_table.setItem(row, 6, status_item)
         self.users_table.resizeRowsToContents()
+        self._sync_status_action_labels()
         if hasattr(self, "activity_log"):
             self.load_activity_log()
 
