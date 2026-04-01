@@ -546,6 +546,8 @@ class ScreeningPage(QWidget):
         self.min_dob_date = QDate(1900, 1, 1)
         self.max_dob_date = QDate.currentDate()
         self.default_dob_date = QDate(2000, 1, 1)  # Default calendar view year
+        self._dob_user_selected = False
+        self._dob_programmatic_update = False
         self.last_result_class = "Pending"
         self.last_result_conf = "Pending"
         self.last_ai_classification = "Pending"
@@ -798,7 +800,11 @@ class ScreeningPage(QWidget):
         self.p_dob = ModernCalendarDateEdit(self.min_dob_date, self.max_dob_date, dob_arrow_icon, self.default_dob_date)
         self._dob_default_style = ""
         self._dob_invalid_style = ""
-        self.p_dob.dateChanged.connect(self.update_age_from_dob)
+        self.p_dob.dateChanged.connect(self._on_dob_date_changed)
+        cal = self.p_dob.calendarWidget()
+        if cal is not None:
+            cal.clicked.connect(self._on_dob_calendar_selected)
+            cal.activated.connect(self._on_dob_calendar_selected)
         self._apply_dob_theme_style()
         c1.addLayout(row2(field("Full Name", self.p_name, "scr_label_name"), field("Date of Birth", self.p_dob, "scr_label_dob")))
 
@@ -1017,6 +1023,17 @@ class ScreeningPage(QWidget):
             self.btn_upload.setIcon(self._tinted_icon(upload_icon, "#ffffff", 18))
             self.btn_upload.setIconSize(QSize(18, 18))
         self.btn_upload.clicked.connect(self.upload_image)
+
+        self.btn_take_picture = QPushButton("Take Picture")
+        self.btn_take_picture.setObjectName("btnPrimary")
+        self.btn_take_picture.setMinimumHeight(36)
+        self.btn_take_picture.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        camera_icon = self._resolve_icon_path("camera.svg")
+        if camera_icon:
+            self.btn_take_picture.setIcon(self._tinted_icon(camera_icon, "#ffffff", 18))
+            self.btn_take_picture.setIconSize(QSize(18, 18))
+        self.btn_take_picture.clicked.connect(self.take_picture_for_screening)
+
         self.btn_clear = QPushButton("Clear")
         self.btn_clear.setObjectName("btnDanger")
         self.btn_clear.setMinimumHeight(36)
@@ -1027,6 +1044,7 @@ class ScreeningPage(QWidget):
             self.btn_clear.setIconSize(QSize(18, 18))
         self.btn_clear.clicked.connect(self.clear_image)
         btn_row.addWidget(self.btn_upload)
+        btn_row.addWidget(self.btn_take_picture)
         btn_row.addWidget(self.btn_clear)
         c3.addLayout(btn_row)
 
@@ -1123,7 +1141,8 @@ class ScreeningPage(QWidget):
         self.setTabOrder(self.symptom_flashes, self.symptom_vision_loss)
         self.setTabOrder(self.symptom_vision_loss, self.symptom_other)
         self.setTabOrder(self.symptom_other, self.btn_upload)
-        self.setTabOrder(self.btn_upload, self.btn_clear)
+        self.setTabOrder(self.btn_upload, self.btn_take_picture)
+        self.setTabOrder(self.btn_take_picture, self.btn_clear)
         self.setTabOrder(self.btn_clear, self.btn_analyze)
 
     def _setup_validators(self):
@@ -1167,7 +1186,7 @@ class ScreeningPage(QWidget):
             )
             return False
 
-        if isinstance(self.p_dob, QDateEdit) and self.p_dob.date() == self.default_dob_date:
+        if isinstance(self.p_dob, QDateEdit) and not self._dob_user_selected:
             QMessageBox.warning(self, "Missing Information", "Please select the patient's actual date of birth.")
             return False
 
@@ -1278,6 +1297,27 @@ class ScreeningPage(QWidget):
         if date < self.min_dob_date or date > QDate.currentDate():
             return QDate()
         return date
+
+    def _set_dob_date(self, date: QDate, user_selected: bool = False):
+        if not isinstance(self.p_dob, QDateEdit):
+            return
+        self._dob_programmatic_update = True
+        try:
+            self.p_dob.setDate(date)
+        finally:
+            self._dob_programmatic_update = False
+        self._dob_user_selected = bool(user_selected and date.isValid() and date != self.min_dob_date)
+
+    def _on_dob_date_changed(self, date: QDate):
+        if not self._dob_programmatic_update:
+            self._dob_user_selected = bool(date.isValid() and date != self.min_dob_date)
+        self.update_age_from_dob(date)
+
+    def _on_dob_calendar_selected(self, date: QDate):
+        if not isinstance(self.p_dob, QDateEdit):
+            return
+        self._dob_user_selected = bool(date.isValid() and date != self.min_dob_date)
+        self.update_age_from_dob(self.p_dob.date())
 
     def _on_diagnosis_date_changed(self, text):
         """Format diagnosis date input and auto-calculate duration."""
@@ -1668,7 +1708,7 @@ class ScreeningPage(QWidget):
         self.p_name.clear()
         self.p_contact.clear()
         if isinstance(self.p_dob, QDateEdit):
-            self.p_dob.setDate(self.default_dob_date)
+            self._set_dob_date(self.default_dob_date, user_selected=False)
         else:
             self.p_dob.clear()
         self.p_age.setValue(0)
@@ -1830,9 +1870,9 @@ class ScreeningPage(QWidget):
                         dob_qdate = min_date
                     if max_date.isValid() and dob_qdate > max_date:
                         dob_qdate = max_date
-                    self.p_dob.setDate(dob_qdate)
+                    self._set_dob_date(dob_qdate, user_selected=True)
                 elif hasattr(self, "default_dob_date") and isinstance(self.default_dob_date, QDate):
-                    self.p_dob.setDate(self.default_dob_date)
+                    self._set_dob_date(self.default_dob_date, user_selected=False)
             else:
                 self.p_dob.setText(dob_text)
 
@@ -1957,6 +1997,86 @@ class ScreeningPage(QWidget):
                 self._set_preview_image(path)
             self.btn_analyze.setEnabled(True)
             self._set_upload_error("")
+
+    def take_picture_for_screening(self):
+        if self._guard_busy_action("opening camera capture"):
+            return
+
+        patient_id = self.p_id.text().strip()
+        if not patient_id:
+            patient_id = self.generate_patient_id()
+
+        eye_label = self.p_eye.currentText().strip()
+        if eye_label not in ("Right Eye", "Left Eye"):
+            QMessageBox.warning(
+                self,
+                "Eye Label Required",
+                "Select the eye to be screened (Right Eye or Left Eye) before taking a picture.",
+            )
+            return
+
+        main_window = self.window()
+        if main_window is self or not hasattr(main_window, "camera_page"):
+            QMessageBox.warning(self, "Camera Unavailable", "Camera page is not available in this session.")
+            return
+
+        operator = str(os.environ.get("EYESHIELD_CURRENT_NAME", "")).strip() or str(
+            os.environ.get("EYESHIELD_CURRENT_USER", "")
+        ).strip()
+        main_window.camera_page.set_capture_context(
+            patient_id=patient_id,
+            patient_name=self.p_name.text().strip(),
+            eye_label=eye_label,
+            operator=operator,
+            on_saved_callback=self._on_camera_capture_return,
+        )
+
+        if hasattr(main_window, "_navigate_to"):
+            main_window._navigate_to(2, nav_key="Camera")
+
+    def _on_camera_capture_return(self, capture_packet: dict):
+        image_path = str((capture_packet or {}).get("image_path") or "").strip()
+        if not image_path or not os.path.isfile(image_path):
+            QMessageBox.warning(
+                self,
+                "Capture Failed",
+                "Captured image could not be loaded. Please retake and save again.",
+            )
+            return
+
+        packet_patient_id = str((capture_packet or {}).get("patient_id") or "").strip()
+        current_patient_id = self.p_id.text().strip()
+        if packet_patient_id and current_patient_id and packet_patient_id != current_patient_id:
+            QMessageBox.critical(
+                self,
+                "Patient Mismatch",
+                "Captured image patient ID does not match the active Screening patient.\n\n"
+                "Please restart capture from the current patient record.",
+            )
+            write_activity(
+                "ERROR",
+                "CAMERA_CAPTURE_PATIENT_MISMATCH",
+                f"packet_patient_id={packet_patient_id}; current_patient_id={current_patient_id}; path={image_path}",
+            )
+            return
+
+        eye_label = str((capture_packet or {}).get("eye_label") or "").strip()
+        if eye_label in ("OD", "Right Eye"):
+            self.p_eye.setCurrentText("Right Eye")
+        elif eye_label in ("OS", "Left Eye"):
+            self.p_eye.setCurrentText("Left Eye")
+
+        self.current_image = image_path
+        if hasattr(self.image_label, "set_image"):
+            self.image_label.set_image(image_path)
+        else:
+            self._set_preview_image(image_path)
+        self.btn_analyze.setEnabled(True)
+        self._set_upload_error("")
+
+        main_window = self.window()
+        if main_window is not self and hasattr(main_window, "_navigate_to"):
+            main_window._navigate_to(1, nav_key="Screening")
 
     def _on_image_dropped(self, path: str):
         if self._guard_busy_action("uploading a new image"):
@@ -2426,7 +2546,13 @@ class ScreeningPage(QWidget):
 
         src_ext = os.path.splitext(source_path)[1].lower() or ".jpg"
         dst_source = os.path.join(base_dir, f"{stamp}_{eye_tag}_source{src_ext}")
-        shutil.copy2(source_path, dst_source)
+
+        norm_source = source_path.replace("\\", "/").lower()
+        pending_marker = "/stored_images/pending/"
+        if pending_marker in norm_source:
+            shutil.move(source_path, dst_source)
+        else:
+            shutil.copy2(source_path, dst_source)
 
         dst_heatmap = ""
         if heatmap_path and os.path.isfile(heatmap_path):
@@ -2961,9 +3087,9 @@ class ScreeningPage(QWidget):
         self.p_name.setText(name)
         if isinstance(self.p_dob, QDateEdit):
             if dob_date.isValid():
-                self.p_dob.setDate(dob_date)
+                self._set_dob_date(dob_date, user_selected=True)
             else:
-                self.p_dob.setDate(self.default_dob_date)
+                self._set_dob_date(self.default_dob_date, user_selected=False)
         else:
             self.p_dob.setText(dob_text)
         self.p_age.setValue(age)
@@ -3069,6 +3195,8 @@ class ScreeningPage(QWidget):
                     label.setText(pack[key])
 
         self.btn_upload.setText(pack["scr_upload_btn"])
+        if hasattr(self, "btn_take_picture"):
+            self.btn_take_picture.setText(pack.get("scr_take_picture_btn", "Take Picture"))
         self.btn_clear.setText(pack["scr_clear_btn"])
         self.btn_analyze.setText(pack["scr_analyze_btn"])
         patient_labels = [

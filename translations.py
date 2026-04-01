@@ -57,6 +57,7 @@ TRANSLATIONS = {
         "scr_clinical_history": "Clinical History",
         "scr_image_upload": "Fundus Image Upload",
         "scr_upload_btn": "Upload Image",
+        "scr_take_picture_btn": "Take Picture",
         "scr_clear_btn": "Clear",
         "scr_analyze_btn": "Analyze Image",
         "scr_label_pid": "Patient ID:",

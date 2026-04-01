@@ -705,6 +705,30 @@ class EyeShieldApp(QMainWindow):
                 self._active_nav_key = self._default_nav_key_for_page(1)
                 self._set_active_nav(1)
             return
+        if index == 2 and hasattr(self, "camera_page") and hasattr(self, "screening_page"):
+            has_context = True
+            if hasattr(self.camera_page, "has_active_screening_session"):
+                has_context = bool(self.camera_page.has_active_screening_session())
+            elif hasattr(self.camera_page, "has_required_capture_context"):
+                has_context = bool(self.camera_page.has_required_capture_context())
+            if not has_context:
+                response = QMessageBox.question(
+                    self,
+                    "Screening Context Required",
+                    "No patient screening context was found for Camera capture.\n\n"
+                    "Go to Screening first to select patient and eye?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                if response == QMessageBox.StandardButton.Yes:
+                    self._active_nav_key = self._default_nav_key_for_page(1)
+                    self.pages.setCurrentIndex(1)
+                    self._set_active_nav(1)
+                else:
+                    current_index = int(self.pages.currentIndex()) if hasattr(self, "pages") else 0
+                    self._active_nav_key = self._default_nav_key_for_page(current_index)
+                    self._set_active_nav(current_index)
+                return
         if not self._is_page_allowed(index):
             if show_denied_message:
                 QMessageBox.warning(self, "Access Denied", "Your account role cannot access this page.")

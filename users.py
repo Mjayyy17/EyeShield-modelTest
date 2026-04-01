@@ -1882,16 +1882,14 @@ class ActivityLogPage(QWidget):
         log_hdr = QHBoxLayout()
         log_hdr.setContentsMargins(2, 0, 2, 2)
 
-        log_hdr_col = QVBoxLayout()
-        log_hdr_col.setSpacing(0)
-        self._section_title = QLabel("Activity Log")
-        self._section_title.setObjectName("usrSectionTitle")
         self._section_hint = QLabel("Latest admin, account, and clinical audit events")
         self._section_hint.setObjectName("usrSectionHint")
-        log_hdr_col.addWidget(self._section_title)
-        log_hdr_col.addWidget(self._section_hint)
-        log_hdr.addLayout(log_hdr_col)
+        log_hdr.addWidget(self._section_hint)
         log_hdr.addStretch()
+
+        toolbar_wrap = QVBoxLayout()
+        toolbar_wrap.setContentsMargins(0, 0, 0, 0)
+        toolbar_wrap.setSpacing(8)
 
         controls = QWidget()
         controls_row = QHBoxLayout(controls)
@@ -1901,35 +1899,39 @@ class ActivityLogPage(QWidget):
         self.log_search_input = QLineEdit()
         self.log_search_input.setObjectName("usrSearchInput")
         self.log_search_input.setPlaceholderText("Search activity log")
-        self.log_search_input.setMinimumWidth(220)
-        self.log_search_input.setMaximumWidth(360)
+        self.log_search_input.setMinimumWidth(240)
+        self.log_search_input.setMaximumWidth(420)
         self.log_search_input.textChanged.connect(self._reset_and_reload)
 
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
         self.date_from.setDisplayFormat("yyyy-MM-dd")
         self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setMinimumWidth(130)
+        self.date_from.setMaximumWidth(140)
         self.date_from.dateChanged.connect(self._reset_and_reload)
 
         self.date_to = QDateEdit()
         self.date_to.setCalendarPopup(True)
         self.date_to.setDisplayFormat("yyyy-MM-dd")
         self.date_to.setDate(QDate.currentDate())
+        self.date_to.setMinimumWidth(130)
+        self.date_to.setMaximumWidth(140)
         self.date_to.dateChanged.connect(self._reset_and_reload)
 
         preset_today_btn = QPushButton("Today")
         preset_today_btn.setObjectName("smallBtn")
-        preset_today_btn.setMaximumWidth(65)
+        preset_today_btn.setMinimumWidth(72)
         preset_today_btn.clicked.connect(self._set_preset_today)
 
         preset_7d_btn = QPushButton("7 Days")
         preset_7d_btn.setObjectName("smallBtn")
-        preset_7d_btn.setMaximumWidth(65)
+        preset_7d_btn.setMinimumWidth(72)
         preset_7d_btn.clicked.connect(self._set_preset_7d)
 
         preset_30d_btn = QPushButton("30 Days")
         preset_30d_btn.setObjectName("smallBtn")
-        preset_30d_btn.setMaximumWidth(65)
+        preset_30d_btn.setMinimumWidth(72)
         preset_30d_btn.clicked.connect(self._set_preset_30d)
 
         self.events_chip = QLabel("Events 0")
@@ -1958,12 +1960,22 @@ class ActivityLogPage(QWidget):
         controls_row.addWidget(preset_today_btn)
         controls_row.addWidget(preset_7d_btn)
         controls_row.addWidget(preset_30d_btn)
-        controls_row.addWidget(self.events_chip)
-        controls_row.addWidget(self.page_chip)
-        controls_row.addWidget(self.prev_page_btn)
-        controls_row.addWidget(self.next_page_btn)
-        controls_row.addWidget(self.export_activity_btn)
-        log_hdr.addWidget(controls)
+        controls_row.addStretch()
+
+        controls_meta = QWidget()
+        controls_meta_row = QHBoxLayout(controls_meta)
+        controls_meta_row.setContentsMargins(0, 0, 0, 0)
+        controls_meta_row.setSpacing(8)
+        controls_meta_row.addStretch()
+        controls_meta_row.addWidget(self.events_chip)
+        controls_meta_row.addWidget(self.page_chip)
+        controls_meta_row.addWidget(self.prev_page_btn)
+        controls_meta_row.addWidget(self.next_page_btn)
+        controls_meta_row.addWidget(self.export_activity_btn)
+
+        toolbar_wrap.addWidget(controls)
+        toolbar_wrap.addWidget(controls_meta)
+        log_hdr.addLayout(toolbar_wrap)
         log_vbox.addLayout(log_hdr)
 
         self.activity_log = QTableWidget(0, 3)
@@ -2126,6 +2138,7 @@ class ActivityLogPage(QWidget):
             self._summary_total_lbl.setText("Total Events: 0")
             self._summary_admin_lbl.setText("Admin Actions: 0")
             self._summary_clinical_lbl.setText("Clinical Actions: 0")
+            self._summary_last_export_lbl.setText("Last Export: Never")
             return
 
         admin_count = 0
@@ -2293,6 +2306,5 @@ class ActivityLogPage(QWidget):
 
         pack = get_pack(language)
         self._title_lbl.setText(pack["usr_log"])
-        self._section_title.setText(pack["usr_log"])
         self._log_group.setTitle(pack["usr_log"])
 
