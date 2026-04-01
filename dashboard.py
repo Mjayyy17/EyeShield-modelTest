@@ -23,7 +23,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 from screening import ScreeningPage
 from reports import ReportsPage
-from users import UsersPage
+from users import UsersPage, ActivityLogPage
 from settings import SettingsPage, DARK_STYLESHEET
 from help_support import HelpSupportPage
 from camera import CameraPage
@@ -35,8 +35,9 @@ class EyeShieldApp(QMainWindow):
     """Main application window"""
 
     ROLE_PAGE_ACCESS = {
-        "admin": {4, 5, 6, 7},
+        "admin": {4, 5, 6, 8},
         "clinician": {0, 1, 2, 3, 5, 6, 7},
+        "viewer": {0, 5, 6},
     }
 
     def __init__(self, username, role, display_name=None, full_name=None, specialization=None, contact=None):
@@ -57,6 +58,7 @@ class EyeShieldApp(QMainWindow):
         self._inactivity_timeout_enabled = True
         self._inactivity_timeout_minutes = 15
         self._dashboard_clock_timer = None
+        self._active_nav_key = ""
 
         self.setWindowTitle("EyeShield – DR Screening")
         self.setMinimumSize(900, 560)
@@ -167,6 +169,7 @@ class EyeShieldApp(QMainWindow):
             label = QLabel(text)
             label.setAlignment(Qt.AlignHCenter)
             label.setFixedWidth(60)
+            label.setWordWrap(True)
             label.setFont(EyeShieldApp._make_nav_font(8))
             label.setStyleSheet("font-size: 10px; color: #495057; margin-top: 0px; text-decoration: none; border: none;")
 
@@ -202,7 +205,16 @@ class EyeShieldApp(QMainWindow):
             {
                 "icon": self._resolve_existing_path(os.path.join(icons_dir, "users.svg")),
                 "label": "Users",
+                "display_label": "Users",
                 "page_index": 4,
+                "nav_key": "users",
+                "requires_admin": True,
+            },
+            {
+                "icon": self._resolve_existing_path(os.path.join(icons_dir, "activity_log.svg")),
+                "label": "Activity Log",
+                "display_label": "Activity\nLog",
+                "page_index": 8,
                 "requires_admin": True,
             },
             {
@@ -235,9 +247,9 @@ class EyeShieldApp(QMainWindow):
         for nav_item in navs:
             if nav_item["page_index"] not in self.allowed_pages:
                 continue
-            w, btn, label = nav_button_with_label(nav_item["icon"], nav_item["label"])
+            w, btn, label = nav_button_with_label(nav_item["icon"], nav_item.get("display_label", nav_item["label"]))
             btn.setProperty("pageIndex", nav_item["page_index"])
-            btn.setProperty("navKey", nav_item["label"])
+            btn.setProperty("navKey", nav_item.get("nav_key", nav_item["label"]))
             label.setProperty("pageIndex", nav_item["page_index"])
 
             # Seed icon immediately so first paint never shows a missing nav icon.
@@ -282,7 +294,8 @@ class EyeShieldApp(QMainWindow):
 
         for button in nav_buttons:
             page_index = int(button.property("pageIndex"))
-            button.clicked.connect(lambda checked=False, idx=page_index: self._navigate_to(idx))
+            nav_key = str(button.property("navKey") or "")
+            button.clicked.connect(lambda checked=False, idx=page_index, key=nav_key: self._navigate_to(idx, nav_key=key))
 
         # (All navigation button connections are now handled via nav_buttons list above)
 
@@ -307,6 +320,7 @@ class EyeShieldApp(QMainWindow):
         )
         self.reports_page.records_changed_callback = self.refresh_dashboard
         self.users_page = UsersPage()
+        self.activity_log_page = ActivityLogPage()
         self.settings_page = SettingsPage()
         self.help_support_page = HelpSupportPage()
         self.referrals_page = self.create_referrals_page()
@@ -315,6 +329,7 @@ class EyeShieldApp(QMainWindow):
         self.dashboard_page = self.create_dashboard_page()
 
         self.users_page.parent_app = self
+        self.activity_log_page.parent_app = self
 
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.screening_page)
@@ -324,6 +339,7 @@ class EyeShieldApp(QMainWindow):
         self.pages.addWidget(self.settings_page)
         self.pages.addWidget(self.help_support_page)
         self.pages.addWidget(self.referrals_page)
+        self.pages.addWidget(self.activity_log_page)
         self.pages.currentChanged.connect(self._on_page_changed)
 
         main_layout.addWidget(self.pages)
@@ -334,7 +350,9 @@ class EyeShieldApp(QMainWindow):
         self._save_shortcut.activated.connect(self._global_save_shortcut)
 
         self.refresh_dashboard()
-        self.pages.setCurrentIndex(self._default_page_index())
+        default_page_index = self._default_page_index()
+        self._active_nav_key = self._default_nav_key_for_page(default_page_index)
+        self.pages.setCurrentIndex(default_page_index)
         self._set_active_nav(self.pages.currentIndex())
 
         # Ensure nav bar styles are correct for the initial theme
@@ -379,7 +397,7 @@ class EyeShieldApp(QMainWindow):
 
     @classmethod
     def _allowed_pages_for_role(cls, role: str) -> set[int]:
-        return set(cls.ROLE_PAGE_ACCESS.get(str(role or "").lower(), cls.ROLE_PAGE_ACCESS["clinician"]))
+        return set(cls.ROLE_PAGE_ACCESS.get(str(role or "").lower(), cls.ROLE_PAGE_ACCESS["viewer"]))
 
     def _is_page_allowed(self, index: int) -> bool:
         return index in self.allowed_pages
@@ -520,7 +538,7 @@ class EyeShieldApp(QMainWindow):
         if not hasattr(self, "nav_buttons"):
             return
         dark = getattr(self, "_dark_mode", False)
-        active_color = "#89b4fa" if dark else "#ffffff"
+        active_color = "#89b4fa" if dark else "#1d5fa8"
         inactive_color = "#a6adc8" if dark else "#495057"
         disabled_color = "#6c7086" if dark else "#adb5bd"
         icon_size = QSize(24, 24)
@@ -528,11 +546,31 @@ class EyeShieldApp(QMainWindow):
             icon_path = btn.property("navIconPath") or ""
             if not btn.isEnabled():
                 color = disabled_color
-            elif int(btn.property("pageIndex") or -1) == active_index:
+            elif self._is_nav_button_active(btn, active_index):
                 color = active_color
             else:
                 color = inactive_color
             self._set_button_svg_icon(btn, icon_path, color, icon_size)
+
+    def _default_nav_key_for_page(self, index: int) -> str:
+        if not hasattr(self, "nav_buttons"):
+            return ""
+        for btn in self.nav_buttons:
+            if int(btn.property("pageIndex") or -1) == index:
+                return str(btn.property("navKey") or "")
+        return ""
+
+    def _is_nav_button_active(self, button: QPushButton, active_index: int) -> bool:
+        btn_index = int(button.property("pageIndex") or -1)
+        if btn_index != active_index:
+            return False
+        same_index_buttons = [b for b in self.nav_buttons if int(b.property("pageIndex") or -1) == active_index]
+        if len(same_index_buttons) <= 1:
+            return True
+        active_key = str(getattr(self, "_active_nav_key", "") or "").strip().lower()
+        if not active_key:
+            return button is same_index_buttons[0]
+        return str(button.property("navKey") or "").strip().lower() == active_key
 
     @staticmethod
     def _apply_title_label_font(label):
@@ -654,7 +692,7 @@ class EyeShieldApp(QMainWindow):
         current_index = self.pages.currentIndex() if hasattr(self, "pages") else 0
         self._set_active_nav(current_index)
 
-    def _navigate_to(self, index, show_denied_message=True):
+    def _navigate_to(self, index, show_denied_message=True, nav_key=""):
         if self._is_screening_navigation_locked() and index != 1:
             if show_denied_message:
                 QMessageBox.information(
@@ -664,12 +702,23 @@ class EyeShieldApp(QMainWindow):
                 )
             if hasattr(self, "pages"):
                 self.pages.setCurrentIndex(1)
+                self._active_nav_key = self._default_nav_key_for_page(1)
+                self._set_active_nav(1)
             return
         if not self._is_page_allowed(index):
             if show_denied_message:
                 QMessageBox.warning(self, "Access Denied", "Your account role cannot access this page.")
+            if hasattr(self, "pages"):
+                current_index = int(self.pages.currentIndex())
+                self._active_nav_key = self._default_nav_key_for_page(current_index)
+                self._set_active_nav(current_index)
             return
+        self._active_nav_key = str(nav_key or self._default_nav_key_for_page(index) or "")
         self.pages.setCurrentIndex(index)
+        # Force immediate refresh so same-index nav targets (Users/Activity Log)
+        # never leave a stale active background when index does not change.
+        self._set_active_nav(self.pages.currentIndex())
+        QTimer.singleShot(0, lambda: self._set_active_nav(self.pages.currentIndex()))
 
     def _global_save_shortcut(self):
         if not hasattr(self, "pages") or not hasattr(self, "screening_page"):
@@ -683,10 +732,16 @@ class EyeShieldApp(QMainWindow):
     def _on_page_changed(self, index):
         if self._is_screening_navigation_locked() and index != 1:
             self.pages.setCurrentIndex(1)
+            self._active_nav_key = self._default_nav_key_for_page(1)
+            self._set_active_nav(1)
             return
         if not self._is_page_allowed(index):
-            self.pages.setCurrentIndex(self._default_page_index())
+            fallback_index = self._default_page_index()
+            self.pages.setCurrentIndex(fallback_index)
+            self._active_nav_key = self._default_nav_key_for_page(fallback_index)
+            self._set_active_nav(fallback_index)
             return
+        self._active_nav_key = self._default_nav_key_for_page(index)
         self._set_active_nav(index)
         if index == 2:
             self.camera_page.enter_page()
@@ -744,44 +799,46 @@ class EyeShieldApp(QMainWindow):
         else:
             active_btn_style = """
                 QPushButton {
-                    color: #ffffff;
+                    color: #1d5fa8;
                     text-align: center;
                     padding: 4px 0px;
-                    border: 1px solid #005ecb;
+                    border: 1px solid #a7ccf7;
                     border-radius: 8px;
                     font-size: 22px;
-                    font-weight: 500;
-                    background: #007bff;
+                    font-weight: 600;
+                    background: #deefff;
                     text-decoration: none;
                 }
-                QPushButton:hover { background: #006fe6; }
-                QPushButton:focus { outline: none; border: 1px solid #0056b3; }
+                QPushButton:hover { background: #d1e8ff; }
+                QPushButton:pressed { background: #c1dcfb; }
+                QPushButton:focus { outline: none; border: 1px solid #86bbea; }
             """
             screening_active_btn_style = """
                 QPushButton {
-                    color: #ffffff;
+                    color: #14528f;
                     text-align: center;
                     padding: 4px 0px;
-                    border: 1px solid #0056b3;
+                    border: 1px solid #8cbfeb;
                     border-radius: 8px;
                     font-size: 22px;
                     font-weight: 700;
-                    background: #0066ff;
+                    background: #d4eaff;
                     text-decoration: none;
                 }
-                QPushButton:hover { background: #005ce6; }
-                QPushButton:focus { outline: none; border: 1px solid #004ba8; }
+                QPushButton:hover { background: #c8e3ff; }
+                QPushButton:pressed { background: #b9d8fa; }
+                QPushButton:focus { outline: none; border: 1px solid #7cb1e4; }
             """
             inactive_btn_style = self.get_nav_button_style(icon_only=True)
-            active_label = "font-size: 10px; color: #005ecb; font-weight: 700; margin-top: 0px; text-decoration: none; border: none;"
-            screening_active_label = "font-size: 10px; color: #0066ff; font-weight: 800; margin-top: 0px; text-decoration: none; border: none;"
+            active_label = "font-size: 10px; color: #1d5fa8; font-weight: 700; margin-top: 0px; text-decoration: none; border: none;"
+            screening_active_label = "font-size: 10px; color: #14528f; font-weight: 800; margin-top: 0px; text-decoration: none; border: none;"
             inactive_label = "font-size: 10px; color: #495057; margin-top: 0px; text-decoration: none; border: none;"
             disabled_label = "font-size: 10px; color: #adb5bd; margin-top: 0px; text-decoration: none; border: none;"
 
         for btn in self.nav_buttons:
-            btn_index = int(btn.property("pageIndex") or -1)
+            is_active = self._is_nav_button_active(btn, index)
             is_screening_btn = str(btn.property("navKey") or "") == "Screening"
-            if btn_index == index:
+            if is_active:
                 if not dark and is_screening_btn and index == 1:
                     btn.setStyleSheet(screening_active_btn_style)
                 else:
@@ -791,7 +848,7 @@ class EyeShieldApp(QMainWindow):
             elif btn.isEnabled():
                 btn.setStyleSheet(inactive_btn_style)
         for i, label in enumerate(self.nav_labels):
-            if int(label.property("pageIndex") or -1) == index:
+            if self._is_nav_button_active(self.nav_buttons[i], index):
                 is_screening_label = str(self.nav_buttons[i].property("navKey") or "") == "Screening"
                 if not dark and is_screening_label and index == 1:
                     label.setStyleSheet(screening_active_label)
@@ -920,6 +977,7 @@ class EyeShieldApp(QMainWindow):
             "Camera": "nav_camera",
             "Reports": "nav_reports",
             "Users": "nav_users",
+            "Activity Log": "usr_log",
             "Settings": "nav_settings",
             "Help": "nav_help",
             "Referrals": "Referrals",
@@ -955,6 +1013,7 @@ class EyeShieldApp(QMainWindow):
             self.screening_page,
             self.reports_page,
             self.users_page,
+            self.activity_log_page,
             self.help_support_page,
         ):
             if hasattr(page, "apply_language"):
@@ -1035,10 +1094,12 @@ class EyeShieldApp(QMainWindow):
         self._inactivity_timer.setSingleShot(True)
         self._inactivity_timer.timeout.connect(self._on_inactivity_timeout)
 
-        self.apply_inactivity_settings(
-            bool(self.settings_page.auto_logout_check.isChecked()),
-            int(self.settings_page.timeout_spin.value()),
-        )
+        runtime_enabled = bool(self.settings_page.auto_logout_check.isChecked())
+        runtime_minutes = int(self.settings_page.timeout_spin.value())
+        if hasattr(self.settings_page, "get_runtime_inactivity_settings"):
+            runtime_enabled, runtime_minutes = self.settings_page.get_runtime_inactivity_settings()
+
+        self.apply_inactivity_settings(runtime_enabled, runtime_minutes)
 
         app = QGuiApplication.instance()
         if app is not None:
@@ -1938,6 +1999,11 @@ class EyeShieldApp(QMainWindow):
                 "source_image_path": row[37],
             }
 
+            UserManager.add_activity_log(
+                self.username,
+                f"RECORD_OPENED patient_id={record.get('patient_id')}; record_id={record.get('id')}; source=referrals",
+            )
+
             from reports import ReferralDetailDialog
 
             dialog = ReferralDetailDialog(record, self)
@@ -2381,9 +2447,10 @@ class EyeShieldApp(QMainWindow):
                     text-decoration: none;
                 }
                 QPushButton:hover {
-                    background: #e9ecef;
-                    color: #007bff;
+                    background: #eef6ff;
+                    color: #1d5fa8;
                 }
+                QPushButton:pressed { background: #e2f0ff; }
                 QPushButton:focus {
                     outline: none;
                     border: 1px solid transparent;

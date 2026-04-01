@@ -472,6 +472,11 @@ class SettingsPage(QWidget):
         session_layout.addWidget(self.timeout_label)
         session_layout.addWidget(self.timeout_spin)
 
+        self.timeout_help_label = QLabel("")
+        self.timeout_help_label.setObjectName("metaLabel")
+        self.timeout_help_label.setWordWrap(True)
+        session_layout.addWidget(self.timeout_help_label)
+
         self.support_email_label = QLabel("Help Support Email:")
         self.support_email_label.setObjectName("fieldLabel")
         self.support_email_input = QLineEdit()
@@ -622,6 +627,8 @@ class SettingsPage(QWidget):
         self._referral_hospital_rows = []
         self._referral_hospital_lookup = {}
         self._selected_referral_hospital_id = None
+        self._policy_default_timeout_minutes = 15
+        self._policy_auto_logout_enabled = True
 
         self.account_group = QGroupBox("My Account")
         account_layout = QVBoxLayout(self.account_group)
@@ -850,11 +857,35 @@ class SettingsPage(QWidget):
         self._load_admin_contact_into_fields()
 
     def _configure_session_support_section(self):
-        show_session_support = self._active_role() == "admin"
+        role = self._active_role()
+        show_session_support = role in {"admin", "clinician", "viewer"}
+        is_admin = role == "admin"
         self.session_group.setVisible(show_session_support)
         if not show_session_support:
             return
-        self._load_support_contact_into_fields()
+
+        self.support_email_label.setVisible(is_admin)
+        self.support_email_input.setVisible(is_admin)
+        self.support_phone_label.setVisible(is_admin)
+        self.support_phone_input.setVisible(is_admin)
+        self.support_hours_label.setVisible(is_admin)
+        self.support_hours_input.setVisible(is_admin)
+        self.auto_logout_check.setVisible(is_admin)
+
+        if is_admin:
+            self.timeout_label.setText("Default inactivity timeout (minutes):")
+            self.timeout_help_label.setText(
+                "Default applies to all accounts. Users can set a personal timeout equal to or lower than this value."
+            )
+            self.auto_logout_check.setEnabled(True)
+            self._load_support_contact_into_fields()
+            return
+
+        self.timeout_label.setText("My inactivity timeout (minutes):")
+        self.timeout_help_label.setText(
+            "Set your personal timeout. It cannot exceed the admin default."
+        )
+        self.auto_logout_check.setEnabled(False)
 
     def _configure_referral_hospitals_section(self):
         show_referrals = self._active_role() == "admin"
@@ -1157,9 +1188,47 @@ class SettingsPage(QWidget):
         }
 
     def _sync_timeout_enabled_state(self):
-        enabled = self.auto_logout_check.isChecked()
+        if self._active_role() == "admin":
+            enabled = self.auto_logout_check.isChecked()
+        else:
+            enabled = bool(self._policy_auto_logout_enabled)
         self.timeout_label.setEnabled(enabled)
         self.timeout_spin.setEnabled(enabled)
+        self.timeout_help_label.setEnabled(True)
+
+    def _resolve_inactivity_policy(self) -> dict:
+        username = self._active_username()
+        role = self._active_role()
+        if role == "admin":
+            settings = self._default_settings()
+            path = self._settings_path()
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as file:
+                        loaded = json.load(file)
+                    if isinstance(loaded, dict):
+                        settings.update(loaded)
+                except (OSError, json.JSONDecodeError):
+                    pass
+            default_minutes = int(settings.get("inactivity_timeout_minutes", 15) or 15)
+            return {
+                "enabled": bool(settings.get("auto_logout_enabled", True)),
+                "default_minutes": max(1, min(240, default_minutes)),
+                "user_minutes": None,
+                "effective_minutes": max(1, min(240, default_minutes)),
+            }
+        return user_store.get_inactivity_policy(username) or {
+            "enabled": True,
+            "default_minutes": 15,
+            "user_minutes": None,
+            "effective_minutes": 15,
+        }
+
+    def get_runtime_inactivity_settings(self) -> tuple[bool, int]:
+        policy = self._resolve_inactivity_policy()
+        enabled = bool(policy.get("enabled", True))
+        effective = int(policy.get("effective_minutes", policy.get("default_minutes", 15)) or 15)
+        return enabled, max(1, min(240, effective))
 
     def _load_admin_contact_into_fields(self):
         contact = self._load_admin_contact_data()
@@ -1310,13 +1379,27 @@ class SettingsPage(QWidget):
         if saved_language not in {self.lang_combo.itemText(i) for i in range(self.lang_combo.count())}:
             saved_language = "English"
         self.lang_combo.setCurrentText(saved_language)
-        self.auto_logout_check.setChecked(bool(settings.get("auto_logout_enabled", True)))
-        timeout_minutes = settings.get("inactivity_timeout_minutes", 15)
-        try:
-            timeout_minutes = int(timeout_minutes)
-        except (TypeError, ValueError):
-            timeout_minutes = 15
-        self.timeout_spin.setValue(max(1, min(240, timeout_minutes)))
+        role = self._active_role()
+        if role == "admin":
+            self.auto_logout_check.setChecked(bool(settings.get("auto_logout_enabled", True)))
+            timeout_minutes = settings.get("inactivity_timeout_minutes", 15)
+            try:
+                timeout_minutes = int(timeout_minutes)
+            except (TypeError, ValueError):
+                timeout_minutes = 15
+            timeout_minutes = max(1, min(240, timeout_minutes))
+            self.timeout_spin.setValue(timeout_minutes)
+            self._policy_default_timeout_minutes = timeout_minutes
+            self._policy_auto_logout_enabled = bool(self.auto_logout_check.isChecked())
+        else:
+            policy = self._resolve_inactivity_policy()
+            self._policy_default_timeout_minutes = int(policy.get("default_minutes", 15) or 15)
+            self._policy_auto_logout_enabled = bool(policy.get("enabled", True))
+            user_minutes = policy.get("user_minutes")
+            effective_minutes = int(policy.get("effective_minutes", self._policy_default_timeout_minutes) or self._policy_default_timeout_minutes)
+            display_minutes = int(user_minutes) if user_minutes is not None else effective_minutes
+            self.auto_logout_check.setChecked(self._policy_auto_logout_enabled)
+            self.timeout_spin.setValue(max(1, min(240, display_minutes)))
         self._sync_timeout_enabled_state()
         if self._active_role() == "admin":
             self._load_admin_contact_into_fields()
@@ -1378,6 +1461,16 @@ class SettingsPage(QWidget):
                 timeout_value = 15
             inactivity_timeout_minutes = max(1, min(240, timeout_value))
 
+            preferred_timeout = int(self.timeout_spin.value())
+            ok, message, effective_minutes = user_store.update_own_inactivity_timeout(
+                current_username=self._active_username(),
+                timeout_minutes=preferred_timeout,
+            )
+            if not ok:
+                QMessageBox.warning(self, "Settings", message)
+                self.status_label.setText("Save failed")
+                return
+
         settings = {
             "theme": self.theme_combo.currentText(),
             "language": self.lang_combo.currentText(),
@@ -1406,6 +1499,9 @@ class SettingsPage(QWidget):
                     auto_logout_enabled,
                     inactivity_timeout_minutes,
                 )
+            if (not is_admin) and main_window is not self and hasattr(main_window, "apply_inactivity_settings"):
+                runtime_enabled, runtime_minutes = self.get_runtime_inactivity_settings()
+                main_window.apply_inactivity_settings(runtime_enabled, runtime_minutes)
             if is_admin and main_window is not self and hasattr(main_window, "help_support_page") and hasattr(main_window.help_support_page, "reload_contact_from_config"):
                 main_window.help_support_page.reload_contact_from_config()
             timestamp = datetime.now().strftime("%I:%M %p").lstrip("0")
@@ -1422,6 +1518,8 @@ class SettingsPage(QWidget):
                     "Settings Updated",
                     "Help support contact details were updated successfully.",
                 )
+            if not is_admin:
+                QMessageBox.information(self, "Settings Updated", message)
         except OSError as err:
             self.status_label.setText("Save failed")
             QMessageBox.warning(self, "Settings", f"Failed to save settings: {err}")
@@ -1544,6 +1642,9 @@ class SettingsPage(QWidget):
             self.support_email_input.setText(support_defaults["email"])
             self.support_phone_input.setText(support_defaults["phone"])
             self.support_hours_input.setText(support_defaults["hours"])
+        else:
+            self.timeout_spin.setValue(int(self._policy_default_timeout_minutes or defaults["inactivity_timeout_minutes"]))
+            self.auto_logout_check.setChecked(bool(self._policy_auto_logout_enabled))
         self._sync_timeout_enabled_state()
         if self._active_role() == "admin":
             admin_defaults = self._default_admin_contact()

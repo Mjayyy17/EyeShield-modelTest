@@ -1,9 +1,10 @@
 """
 Temporary camera page for EyeShield EMR.
-Uses system webcam until fundus camera integration is available.
-"""
+Uses system webcam until fundus camera integration is available.Includes patient handoff safety, device resilience, and capture workflow."""
 
 from datetime import datetime
+import json
+import os
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -17,8 +18,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QProgressBar,
     QStackedWidget,
+    QLineEdit,
+    QDialog,
+    QFrame,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, pyqtSignal
 from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QCamera, QMediaCaptureSession, QMediaDevices
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -56,7 +60,28 @@ class CameraPage(QWidget):
         self._sample_paths = []
         self._sample_index = -1
         self._capture_ready = False
+        
+        # Capture workflow state
+        self._saved_capture = None
+        self._saved_capture_metadata = None
+        self._saved_capture_timestamp = None
+        
+        # Inactivity monitoring
+        self._inactivity_timeout_enabled = False
+        self._inactivity_timeout_minutes = 15
+        self._inactivity_label = None
+        self._inactivity_timer = None
+        self._inactivity_remaining_sec = 0
+        
+        # Device resilience
+        self._device_reconnect_timer = None
+        self._device_reconnect_attempts = 0
+        
+        # Settings persistence
+        self._settings_cache_file = os.path.join(os.path.expanduser("~"), ".eyeshield_camera_settings.json")
+        
         self.init_ui()
+        self._load_camera_settings()
         self._set_mode(self.MODE_SIMULATION)
 
     def init_ui(self):
@@ -228,6 +253,36 @@ class CameraPage(QWidget):
         self.capture_btn = QPushButton("Capture Frame")
         self.capture_btn.clicked.connect(self._capture_frame)
         controls_layout.addWidget(self.capture_btn)
+        
+        # Capture workflow buttons: Save, Preview, Retry, Discard
+        capture_workflow_row = QHBoxLayout()
+        capture_workflow_row.setSpacing(6)
+        
+        save_btn = QPushButton("Save Capture")
+        save_btn.setEnabled(False)
+        save_btn.clicked.connect(self._save_capture)
+        self._save_capture_btn = save_btn
+        capture_workflow_row.addWidget(save_btn)
+        
+        preview_btn = QPushButton("Preview Saved")
+        preview_btn.setEnabled(False)
+        preview_btn.clicked.connect(self._preview_saved_capture)
+        self._preview_capture_btn = preview_btn
+        capture_workflow_row.addWidget(preview_btn)
+        
+        retry_btn = QPushButton("Retry")
+        retry_btn.setEnabled(False)
+        retry_btn.clicked.connect(self._retry_capture)
+        self._retry_capture_btn = retry_btn
+        capture_workflow_row.addWidget(retry_btn)
+        
+        discard_btn = QPushButton("Discard")
+        discard_btn.setEnabled(False)
+        discard_btn.clicked.connect(self._discard_capture)
+        self._discard_capture_btn = discard_btn
+        capture_workflow_row.addWidget(discard_btn)
+        
+        controls_layout.addLayout(capture_workflow_row)
 
         self.send_btn = QPushButton("Send to Screening")
         self.send_btn.clicked.connect(self._send_to_screening)
@@ -255,6 +310,17 @@ class CameraPage(QWidget):
         self.diag_last_action_value = self._diag_row(diag_layout, "Last Action")
 
         right_col.addWidget(diag_group)
+        
+        # Inactivity warning badge
+        inactivity_group = QGroupBox("Session Monitor")
+        inactivity_layout = QVBoxLayout(inactivity_group)
+        inactivity_layout.setContentsMargins(14, 14, 14, 14)
+        self._inactivity_label = QLabel("Session timeout monitoring: disabled")
+        self._inactivity_label.setObjectName("diagValue")
+        self._inactivity_label.setStyleSheet("color: #6d8298; font-size: 13px; font-weight: 600;")
+        inactivity_layout.addWidget(self._inactivity_label)
+        right_col.addWidget(inactivity_group)
+        
         right_col.addStretch(1)
 
         main_row.addLayout(right_col, 2)
@@ -423,8 +489,12 @@ class CameraPage(QWidget):
 
         self.quality_bar.setValue(quality)
         self._capture_ready = True
-        self.send_btn.setEnabled(True)
-        self._stamp_action("Frame captured")
+        # Save capture to state but don't send yet
+        self._save_capture_btn.setEnabled(True)
+        self._retry_capture_btn.setEnabled(True)
+        self._discard_capture_btn.setEnabled(True)
+        self.send_btn.setEnabled(False)  # Send only after explicit Save + review
+        self._stamp_action("Frame captured (ready to save)")
 
     def _send_to_screening(self):
         if not self._capture_ready:
@@ -492,6 +562,21 @@ class CameraPage(QWidget):
     def leave_page(self):
         self.stop_camera()
 
+        def _save_capture(self):
+            if not self._capture_ready:
+                return
+            self._saved_capture_timestamp = datetime.now()
+            self._saved_capture_metadata = {
+                "mode": self.mode_combo.currentText(),
+                "quality": self.quality_bar.value(),
+                "timestamp": self._saved_capture_timestamp.isoformat(),
+                "device": self.diag_device_value.text(),
+            }
+            self._saved_capture = "capture_saved"
+            self.status_label.setText(f"Capture saved at quality {self.quality_bar.value()}%")
+            self._preview_capture_btn.setEnabled(True)
+            self.send_btn.setEnabled(True)
+            self._stamp_action("Capture saved")
     def closeEvent(self, event):
         self.stop_camera()
         super().closeEvent(event)

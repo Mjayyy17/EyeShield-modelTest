@@ -41,7 +41,7 @@ from logic_improvements import (
     DuplicateDetector,
     DuplicateDialog,
 )
-from auth import DB_FILE
+from auth import DB_FILE, UserManager
 from safety_runtime import get_autosave_draft_path, safe_remove_file, write_activity
 
 
@@ -2814,6 +2814,15 @@ class ScreeningPage(QWidget):
             "RESULT_REPLACED" if replace_record_id is not None else "RESULT_SAVED",
             f"patient_id={pid}; eye={eye}; path={self._last_saved_source_path}; result={result}; confidence={confidence}",
         )
+        if screener_username:
+            UserManager.add_activity_log(
+                screener_username,
+                (
+                    f"SCREENED_PATIENT patient_id={pid}; eye={eye}; "
+                    f"result={result}; confidence={confidence}; "
+                    f"mode={'replace' if replace_record_id is not None else 'new'}"
+                ),
+            )
         if reset_after:
             saved_name = name or "Unknown Patient"
             saved_eye = eye or "Selected Eye"

@@ -990,6 +990,11 @@ class ReportsPage(QWidget):
         if not full_record:
             QMessageBox.warning(self, "Patient Details", "Unable to load patient details.")
             return
+
+        UserManager.add_activity_log(
+            self.username,
+            f"RECORD_OPENED patient_id={full_record.get('patient_id')}; record_id={record_id}; source=reports",
+        )
         
         dialog = PatientDetailsDialog(full_record, self)
         dialog.exec()
@@ -1203,14 +1208,18 @@ class ReportsPage(QWidget):
         try:
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
+            placeholders = ",".join("?" for _ in valid_ids)
+            cur.execute(
+                f"SELECT id, patient_id FROM patient_records WHERE id IN ({placeholders})",
+                valid_ids,
+            )
+            affected_rows = cur.fetchall()
             if archived:
-                placeholders = ",".join("?" for _ in valid_ids)
                 cur.execute(
                     f"UPDATE patient_records SET archived_at=?,archived_by=?,archive_reason=? WHERE id IN ({placeholders})",
                     [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), actor, None, *valid_ids],
                 )
             else:
-                placeholders = ",".join("?" for _ in valid_ids)
                 cur.execute(
                     f"UPDATE patient_records SET archived_at=NULL,archived_by=NULL,archive_reason=NULL WHERE id IN ({placeholders})",
                     valid_ids,
@@ -1222,6 +1231,13 @@ class ReportsPage(QWidget):
             return False
         if success and callable(self.records_changed_callback):
             self.records_changed_callback()
+        if success:
+            event = "RECORD_ARCHIVED" if archived else "RECORD_RESTORED"
+            for rec_id, patient_id in affected_rows:
+                UserManager.add_activity_log(
+                    self.username,
+                    f"{event} patient_id={patient_id}; record_id={rec_id}",
+                )
         return success
 
     @staticmethod
@@ -1252,6 +1268,10 @@ class ReportsPage(QWidget):
                                 "Archived" if row["archived_at"] else "Active",
                                 row["archived_at"],row["archived_by"]])
             self.status_label.setText(f"Exported {len(self._filtered_rows)} rows to {path}")
+            UserManager.add_activity_log(
+                self.username,
+                f"REPORT_EXPORT_CSV rows={len(self._filtered_rows)}; path={os.path.basename(path)}",
+            )
         except OSError as err:
             QMessageBox.warning(self, "Export", f"Failed to export summary: {err}")
 
@@ -1924,7 +1944,13 @@ class ReportsPage(QWidget):
         self.status_label.setText(f"Report saved: {os.path.basename(path)}")
         UserManager.add_activity_log(
             self.username,
-            f"REPORT_GENERATED patient_id={full.get('patient_id')}; created_by={created_by_raw or finalized_by_raw}; finalized_by={finalized_by_raw}",
+            (
+                f"REPORT_GENERATED patient_id={full.get('patient_id')}; "
+                f"record_id={full.get('id')}; "
+                f"created_by={created_by_raw or finalized_by_raw}; "
+                f"finalized_by={finalized_by_raw}; "
+                f"file={os.path.basename(path)}"
+            ),
         )
         QMessageBox.information(self, "Report Saved", f"Patient report saved to:\n{path}")
 
@@ -2169,7 +2195,13 @@ class ReportsPage(QWidget):
         self.status_label.setText(f"Referral saved: {os.path.basename(path)}")
         UserManager.add_activity_log(
             self.username,
-            f"REFERRAL_GENERATED patient_id={full.get('patient_id')}; created_by={created_by_raw or finalized_by_raw}; finalized_by={finalized_by_raw}",
+            (
+                f"REFERRAL_GENERATED patient_id={full.get('patient_id')}; "
+                f"record_id={full.get('id')}; "
+                f"created_by={created_by_raw or finalized_by_raw}; "
+                f"finalized_by={finalized_by_raw}; "
+                f"file={os.path.basename(path)}"
+            ),
         )
         QMessageBox.information(self, "Referral Saved", f"Referral letter saved to:\n{path}")
         

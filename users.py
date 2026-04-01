@@ -3,19 +3,22 @@ Users management module for EyeShield EMR application.
 Provides a GUI for creating, listing, updating and deleting users.
 """
 
-import os
 import re
 import json
-from datetime import date, datetime, timedelta
+import csv
+import os
+from datetime import date, datetime, timedelta, timezone
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
     QHBoxLayout, QPushButton, QLineEdit, QComboBox, QMessageBox,
     QGroupBox, QFormLayout, QAbstractItemView, QDialog, QApplication,
-    QHeaderView, QInputDialog, QMenu, QCheckBox, QTimeEdit, QTabWidget
+    QHeaderView, QInputDialog, QMenu, QCheckBox, QTimeEdit,
+    QFileDialog, QDateEdit,
+    QSizePolicy
 )
 from PySide6.QtGui import QFont, QAction, QIcon, QColor
-from PySide6.QtCore import Qt, QTime
+from PySide6.QtCore import Qt, QTime, QDate
 import user_store
 
 
@@ -206,32 +209,52 @@ _PAGE_STYLE = """
     QLabel#usrStatTotal,
     QLabel#usrStatAdmin,
     QLabel#usrStatSpecialists,
-    QLabel#usrStatViewer {
+    QLabel#usrStatViewer,
+    QPushButton#usrStatTotal,
+    QPushButton#usrStatAdmin,
+    QPushButton#usrStatSpecialists,
+    QPushButton#usrStatViewer {
         border-radius: 12px;
-        padding: 7px 12px;
-        font-size: 12px;
+        padding: 6px 10px;
+        font-size: 11px;
         font-weight: 700;
         border: 1px solid transparent;
     }
-    QLabel#usrStatTotal {
+    QLabel#usrStatTotal,
+    QPushButton#usrStatTotal {
         color: #0b5ed7;
         background: #eaf2ff;
         border-color: #cfe0ff;
     }
-    QLabel#usrStatAdmin {
+    QLabel#usrStatAdmin,
+    QPushButton#usrStatAdmin {
         color: #842029;
         background: #fdecef;
         border-color: #f5c2c7;
     }
-    QLabel#usrStatSpecialists {
+    QLabel#usrStatSpecialists,
+    QPushButton#usrStatSpecialists {
         color: #0f5132;
         background: #e8f7ef;
         border-color: #b7e4c7;
     }
-    QLabel#usrStatViewer {
+    QLabel#usrStatViewer,
+    QPushButton#usrStatViewer {
         color: #495057;
         background: #f1f3f5;
         border-color: #dee2e6;
+    }
+    QPushButton#usrStatTotal:checked,
+    QPushButton#usrStatAdmin:checked,
+    QPushButton#usrStatSpecialists:checked,
+    QPushButton#usrStatViewer:checked {
+        border-width: 2px;
+    }
+    QPushButton#usrStatTotal:hover,
+    QPushButton#usrStatAdmin:hover,
+    QPushButton#usrStatSpecialists:hover,
+    QPushButton#usrStatViewer:hover {
+        border-width: 2px;
     }
     QWidget#usrNotifyBar {
         background: #e8f5ee;
@@ -305,6 +328,31 @@ def _verify_acting_admin(current_username, acting_password):
         return False
 
 
+def _parse_activity_timestamp(value: str):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00").strip()
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        pass
+    normalized = text.replace("T", " ").replace("Z", "").strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 # â”€â”€ User Manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class UserManager:
@@ -343,16 +391,16 @@ class UserManager:
         return [(u["username"], u["role"]) for u in user_store.get_all_users()]
 
     @staticmethod
-    def delete_user(username, acting_username=None, acting_role=None):
-        return user_store.delete_user(username, acting_username, acting_role)
+    def delete_user(username, acting_username=None, acting_role=None, acting_password=None):
+        return user_store.delete_user(username, acting_username, acting_role, acting_password)
 
     @staticmethod
-    def update_user_role(username, new_role, acting_username=None, acting_role=None):
-        return user_store.update_user_role(username, new_role, acting_username, acting_role)
+    def update_user_role(username, new_role, acting_username=None, acting_role=None, acting_password=None):
+        return user_store.update_user_role(username, new_role, acting_username, acting_role, acting_password)
 
     @staticmethod
-    def reset_password(username, new_password, acting_username=None, acting_role=None):
-        return user_store.reset_password(username, new_password, acting_username, acting_role)
+    def reset_password(username, new_password, acting_username=None, acting_role=None, acting_password=None):
+        return user_store.reset_password(username, new_password, acting_username, acting_role, acting_password)
 
 
 # â”€â”€ Dialogs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -497,14 +545,8 @@ class NewUserDialog(QDialog):
         # ── Resolve acting admin context ──────────────────────────────
         parent = self.parent()
         parent_app = getattr(parent, "parent_app", None)
-        acting_username = (
-            getattr(parent_app, "username", None)
-            or os.environ.get("EYESHIELD_CURRENT_USER")
-        )
-        acting_role = (
-            getattr(parent_app, "role", None)
-            or os.environ.get("EYESHIELD_CURRENT_ROLE")
-        )
+        acting_username = getattr(parent_app, "username", None)
+        acting_role = getattr(parent_app, "role", None)
 
         if not acting_username or acting_role != "admin":
             QMessageBox.warning(
@@ -567,7 +609,15 @@ class NewUserDialog(QDialog):
             if hasattr(parent, "refresh_users"):
                 parent.refresh_users()
             if hasattr(parent, "log_activity"):
-                parent.log_activity(username, f"Account Created ({role})")
+                parent.log_activity(
+                    acting_username,
+                    "ACCOUNT_CREATED",
+                    {
+                        "target": username,
+                        "role": role,
+                    },
+                    action_text=f"Account Created ({role})",
+                )
             if hasattr(parent, "_set_status"):
                 parent._set_status(f"User '{username}' created successfully")
             if hasattr(parent, "show_notification"):
@@ -844,16 +894,12 @@ class UsersPage(QWidget):
             "font-size:22px;font-weight:700;color:#0d6efd;"
             "font-family:'Segoe UI','Inter','Arial';"
         )
-        self.count_label = QLabel("User Directory")
+        self.count_label = QLabel("")
         self.count_label.setStyleSheet("color:#6c757d;font-size:13px;font-weight:600;margin-left:10px;")
+        self.count_label.hide()
         header_row.addWidget(self._usr_title_lbl)
         header_row.addWidget(self.count_label)
         header_row.addStretch()
-
-        add_btn = QPushButton("\u002b  New User")
-        add_btn.setObjectName("primaryBtn")
-        add_btn.clicked.connect(self._open_new_user_dialog)
-        header_row.addWidget(add_btn)
         main_layout.addLayout(header_row)
 
         self.notify_bar = QWidget()
@@ -871,32 +917,39 @@ class UsersPage(QWidget):
         self.notify_bar.hide()
         main_layout.addWidget(self.notify_bar)
 
-        controls_row = QHBoxLayout()
-        controls_row.setSpacing(10)
-
         self.search_input = QLineEdit()
         self.search_input.setObjectName("usrSearchInput")
         self.search_input.setPlaceholderText("Search by name, username, role, specialization, or contact")
         self.search_input.textChanged.connect(self.refresh_users)
-        controls_row.addWidget(self.search_input, 1)
 
-        self.total_chip = QLabel("Total 0")
+        self.active_role_filter = "all"
+        self.total_chip = QPushButton("Total 0")
         self.total_chip.setObjectName("usrStatTotal")
-        controls_row.addWidget(self.total_chip)
+        self.total_chip.setCheckable(True)
+        self.total_chip.clicked.connect(lambda _checked=False: self._set_role_filter("all"))
 
-        self.admin_chip = QLabel("Admin 0")
+        self.admin_chip = QPushButton("Admin 0")
         self.admin_chip.setObjectName("usrStatAdmin")
-        controls_row.addWidget(self.admin_chip)
+        self.admin_chip.setCheckable(True)
+        self.admin_chip.clicked.connect(lambda _checked=False: self._set_role_filter("admin"))
 
-        self.specialists_chip = QLabel("Specialists 0")
+        self.specialists_chip = QPushButton("Clinician 0")
         self.specialists_chip.setObjectName("usrStatSpecialists")
-        controls_row.addWidget(self.specialists_chip)
+        self.specialists_chip.setCheckable(True)
+        self.specialists_chip.clicked.connect(lambda _checked=False: self._set_role_filter("clinician"))
 
-        self.viewer_chip = QLabel("Viewer 0")
+        self.viewer_chip = QPushButton("Viewer 0")
         self.viewer_chip.setObjectName("usrStatViewer")
-        controls_row.addWidget(self.viewer_chip)
+        self.viewer_chip.setCheckable(True)
+        self.viewer_chip.clicked.connect(lambda _checked=False: self._set_role_filter("viewer"))
 
-        main_layout.addLayout(controls_row)
+        self._role_filter_buttons = {
+            "all": self.total_chip,
+            "admin": self.admin_chip,
+            "clinician": self.specialists_chip,
+            "viewer": self.viewer_chip,
+        }
+        self._sync_role_filter_buttons()
 
         # Users table card
         self._usr_table_group = QGroupBox("Users")
@@ -905,17 +958,33 @@ class UsersPage(QWidget):
 
         users_hdr = QHBoxLayout()
         users_hdr.setContentsMargins(2, 0, 2, 2)
-        users_title = QLabel("Users")
-        users_title.setObjectName("usrSectionTitle")
-        users_hint = QLabel("Manage accounts, roles, and weekly availability")
-        users_hint.setObjectName("usrSectionHint")
         users_hdr_col = QVBoxLayout()
         users_hdr_col.setSpacing(0)
-        users_hdr_col.addWidget(users_title)
-        users_hdr_col.addWidget(users_hint)
         users_hdr.addLayout(users_hdr_col)
-        users_hdr.addStretch()
         table_vbox.addLayout(users_hdr)
+
+        users_toolbar = QHBoxLayout()
+        users_toolbar.setContentsMargins(2, 0, 2, 4)
+        users_toolbar.setSpacing(8)
+
+        self.search_input.setMinimumWidth(170)
+        self.search_input.setMaximumWidth(260)
+        self.search_input.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        users_toolbar.addWidget(self.search_input)
+
+        for chip in (self.total_chip, self.admin_chip, self.specialists_chip, self.viewer_chip):
+            chip.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            users_toolbar.addWidget(chip)
+
+        users_toolbar.addStretch()
+
+        self.new_user_btn = QPushButton("\u002b  New User")
+        self.new_user_btn.setObjectName("primaryBtn")
+        self.new_user_btn.clicked.connect(self._open_new_user_dialog)
+        self.new_user_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        users_toolbar.addWidget(self.new_user_btn)
+
+        table_vbox.addLayout(users_toolbar)
 
         self.users_table = QTableWidget(0, 7)
         self.users_table.setObjectName("usrUsersTable")
@@ -966,59 +1035,7 @@ class UsersPage(QWidget):
         action_row.addWidget(self.delete_btn)
         table_vbox.addLayout(action_row)
 
-        # Activity log card
-        self._usr_log_group = QGroupBox("Activity Log")
-        log_vbox = QVBoxLayout(self._usr_log_group)
-        log_hdr = QHBoxLayout()
-        log_hdr.setContentsMargins(2, 0, 2, 2)
-        log_title = QLabel("Activity Log")
-        log_title.setObjectName("usrSectionTitle")
-        log_hint = QLabel("Latest admin, account, and clinical audit events")
-        log_hint.setObjectName("usrSectionHint")
-        log_hdr_col = QVBoxLayout()
-        log_hdr_col.setSpacing(0)
-        log_hdr_col.addWidget(log_title)
-        log_hdr_col.addWidget(log_hint)
-        log_hdr.addLayout(log_hdr_col)
-        log_hdr.addStretch()
-        log_vbox.addLayout(log_hdr)
-
-        self.activity_log = QTableWidget(0, 3)
-        self.activity_log.setObjectName("usrActivityTable")
-        self.activity_log.setHorizontalHeaderLabels(["Username", "Action", "Date-Time"])
-        self.activity_log.setSelectionMode(QAbstractItemView.NoSelection)
-        self.activity_log.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.activity_log.verticalHeader().setVisible(False)
-        self.activity_log.setShowGrid(False)
-        self.activity_log.horizontalHeader().setStretchLastSection(False)
-        self.activity_log.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.activity_log.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        self.activity_log.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
-        self.activity_log.setColumnWidth(1, 190)
-        self.activity_log.setColumnWidth(2, 165)
-        self.activity_log.setMinimumHeight(175)
-        self.activity_log.setSortingEnabled(True)
-        log_vbox.addWidget(self.activity_log)
-
-        self.admin_tabs = QTabWidget()
-        self.admin_tabs.setObjectName("usrAdminTabs")
-
-        users_tab = QWidget()
-        users_tab_layout = QVBoxLayout(users_tab)
-        users_tab_layout.setContentsMargins(8, 8, 8, 8)
-        users_tab_layout.setSpacing(0)
-        users_tab_layout.addWidget(self._usr_table_group)
-
-        activity_tab = QWidget()
-        activity_tab_layout = QVBoxLayout(activity_tab)
-        activity_tab_layout.setContentsMargins(8, 8, 8, 8)
-        activity_tab_layout.setSpacing(0)
-        activity_tab_layout.addWidget(self._usr_log_group)
-
-        self.admin_tabs.addTab(users_tab, "Users")
-        self.admin_tabs.addTab(activity_tab, "Activity Log")
-        self.admin_tabs.currentChanged.connect(self._handle_admin_tab_change)
-        main_layout.addWidget(self.admin_tabs, 1)
+        main_layout.addWidget(self._usr_table_group, 1)
 
         # Status bar
         self.status_label = QLabel("Ready")
@@ -1027,16 +1044,12 @@ class UsersPage(QWidget):
         main_layout.addWidget(self.status_label)
 
         self.refresh_users()
-        self.load_activity_log()
+        
 
     # â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _open_new_user_dialog(self):
         NewUserDialog(parent=self).exec()
-
-    def _handle_admin_tab_change(self, index: int):
-        if index == 1:
-            self.load_activity_log()
 
     def _set_status(self, message, ok=True):
         color = "#198754" if ok else "#dc3545"
@@ -1134,26 +1147,39 @@ class UsersPage(QWidget):
 
         availability_json = "" if dialog.skip_selected else dialog.get_availability_json()
         acting_username, acting_role = self._actor_context()
+        acting_password = self.prompt_for_admin_password(self, f"update availability for '{username}'")
+        if acting_password is None:
+            return
+        if not self._check_admin_password(acting_password):
+            return
+
         success = user_store.update_user_availability(
             username,
             availability_json,
             acting_username=acting_username,
             acting_role=acting_role,
+            acting_password=acting_password,
         )
         if not success:
             QMessageBox.warning(self, "Update Failed", f"Could not update availability for '{username}'.")
             return
 
         self._set_status(f"Availability updated for '{username}'")
-        self.log_activity(username, "Availability Updated")
+        actor_username = str(acting_username or "system").strip() or "system"
+        self.log_activity(
+            actor_username,
+            "USER_AVAILABILITY_UPDATED",
+            {"target": username},
+            action_text=f"USER_AVAILABILITY_UPDATED target={username}",
+        )
         if hasattr(self, "show_notification"):
             self.show_notification(f"Schedule updated for {username}.")
         self.refresh_users()
 
     def _actor_context(self):
         parent_app = getattr(self, "parent_app", None)
-        username = getattr(parent_app, "username", None) or os.environ.get("EYESHIELD_CURRENT_USER")
-        role = getattr(parent_app, "role", None) or os.environ.get("EYESHIELD_CURRENT_ROLE")
+        username = getattr(parent_app, "username", None)
+        role = getattr(parent_app, "role", None)
         return username, role
 
     @staticmethod
@@ -1179,6 +1205,21 @@ class UsersPage(QWidget):
             return False
         return True
 
+    def _sync_role_filter_buttons(self):
+        selected = str(getattr(self, "active_role_filter", "all") or "all").strip().lower()
+        for role_key, button in getattr(self, "_role_filter_buttons", {}).items():
+            button.blockSignals(True)
+            button.setChecked(role_key == selected)
+            button.blockSignals(False)
+
+    def _set_role_filter(self, role_key: str):
+        normalized = str(role_key or "all").strip().lower()
+        if normalized not in {"all", "admin", "clinician", "viewer"}:
+            normalized = "all"
+        self.active_role_filter = normalized
+        self._sync_role_filter_buttons()
+        self.refresh_users()
+
     # â”€â”€ User Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def refresh_users(self):
@@ -1197,17 +1238,21 @@ class UsersPage(QWidget):
         if hasattr(self, "total_chip"):
             self.total_chip.setText(f"Total {total_count}")
             self.admin_chip.setText(f"Admin {admin_count}")
-            self.specialists_chip.setText(f"Specialists {clinician_count}")
+            self.specialists_chip.setText(f"Clinician {clinician_count}")
             self.viewer_chip.setText(f"Viewer {viewer_count}")
+            self._sync_role_filter_buttons()
 
         query = ""
         if hasattr(self, "search_input"):
             query = self.search_input.text().strip().lower()
 
         filtered_users = []
+        active_role_filter = str(getattr(self, "active_role_filter", "all") or "all").strip().lower()
         for user in users:
             role = str(user.get("role") or "")
             specialization = str(user.get("specialization") or "")
+            if active_role_filter != "all" and role != active_role_filter:
+                continue
             haystack = " ".join(
                 [
                     str(user.get("full_name") or ""),
@@ -1221,9 +1266,6 @@ class UsersPage(QWidget):
             if query and query not in haystack:
                 continue
             filtered_users.append(user)
-
-        shown = len(filtered_users)
-        self.count_label.setText(f"Showing {shown} of {total_count} users")
 
         for user in filtered_users:
             row = self.users_table.rowCount()
@@ -1318,8 +1360,6 @@ class UsersPage(QWidget):
             self.users_table.setItem(row, 6, status_item)
         self.users_table.resizeRowsToContents()
         self._sync_status_action_labels()
-        if hasattr(self, "activity_log"):
-            self.load_activity_log()
 
     # â”€â”€ CRUD Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -1361,10 +1401,21 @@ class UsersPage(QWidget):
         if not self._check_admin_password(acting_password):
             return
 
-        success = user_store.delete_user(username, acting_username=current_username, acting_role=current_role)
+        success = user_store.delete_user(
+            username,
+            acting_username=current_username,
+            acting_role=current_role,
+            acting_password=acting_password,
+        )
         if success:
             self._set_status(f"User '{username}' deleted")
-            self.log_activity(username, "Account Deleted")
+            actor_username = str(current_username or "system").strip() or "system"
+            self.log_activity(
+                actor_username,
+                "ACCOUNT_DELETED",
+                {"target": username, "target_role": role},
+                action_text=f"ACCOUNT_DELETED target={username};target_role={role}",
+            )
             self.refresh_users()
             QMessageBox.information(self, "User Deleted", f"User '{username}' was successfully deleted.")
         else:
@@ -1384,6 +1435,15 @@ class UsersPage(QWidget):
 
         username = username_item.text()
         current_role_val = str(role_item.data(Qt.UserRole) or role_item.text().strip())
+        acting_username, _ = self._actor_context()
+
+        if acting_username and username.strip().lower() == acting_username.strip().lower():
+            QMessageBox.warning(
+                self,
+                "Not Allowed",
+                "For safety, you cannot change your own role.",
+            )
+            return
 
         dlg = ChangeRoleDialog(username, current_role_val, parent=self)
         if dlg.exec() != QDialog.Accepted:
@@ -1412,11 +1472,28 @@ class UsersPage(QWidget):
 
         acting_username, acting_role = self._actor_context()
         success = user_store.update_user_role(
-            username, new_role, acting_username=acting_username, acting_role=acting_role
+            username,
+            new_role,
+            acting_username=acting_username,
+            acting_role=acting_role,
+            acting_password=acting_password,
         )
         if success:
             self._set_status(f"Role updated: {username} \u2192 {new_role}")
-            self.log_activity(username, f"Role Changed ({new_role})")
+            actor_username = str(acting_username or "system").strip() or "system"
+            self.log_activity(
+                actor_username,
+                "ROLE_CHANGED",
+                {
+                    "target": username,
+                    "new_role": new_role,
+                    "previous_role": current_role_val,
+                },
+                action_text=(
+                    f"ROLE_CHANGED target={username};new_role={new_role};"
+                    f"previous_role={current_role_val}"
+                ),
+            )
             self.refresh_users()
             QMessageBox.information(
                 self, "Role Updated",
@@ -1459,11 +1536,19 @@ class UsersPage(QWidget):
         acting_username, acting_role = self._actor_context()
         success = user_store.reset_password(
             username, dlg.new_password(),
-            acting_username=acting_username, acting_role=acting_role,
+            acting_username=acting_username,
+            acting_role=acting_role,
+            acting_password=acting_password,
         )
         if success:
             self._set_status(f"Password reset for '{username}'")
-            self.log_activity(username, "Password Reset")
+            actor_username = str(acting_username or "system").strip() or "system"
+            self.log_activity(
+                actor_username,
+                "PASSWORD_RESET",
+                {"target": username},
+                action_text=f"PASSWORD_RESET target={username}",
+            )
             QMessageBox.information(
                 self, "Password Reset",
                 f"Password for '{username}' was successfully reset.",
@@ -1516,27 +1601,70 @@ class UsersPage(QWidget):
             target_state,
             acting_username=current_username,
             acting_role=current_role,
+            acting_password=acting_password,
         )
         if success:
             self._set_status(f"Status updated: {username} → {target_text}")
-            self.log_activity(username, f"Status Changed ({target_text})")
+            actor_username = str(current_username or "system").strip() or "system"
+            self.log_activity(
+                actor_username,
+                "USER_STATUS_CHANGED",
+                {"target": username, "status": target_text},
+                action_text=f"USER_STATUS_CHANGED target={username};status={target_text}",
+            )
             self.refresh_users()
             QMessageBox.information(self, "Status Updated", f"'{username}' is now {target_text}.")
         else:
             self._set_status(f"Failed to update status for '{username}'", ok=False)
             QMessageBox.warning(self, "Update Failed", f"Could not update status for '{username}'.")
 
-    def log_activity(self, user, action):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        user_store.log_activity(user, action, timestamp)
-        self.load_activity_log()
+    def log_activity(self, user, event_type, metadata=None, action_text=None):
+        timestamp = _utc_now_iso()
+        user_store.log_activity_event(
+            user,
+            event_type,
+            metadata=metadata,
+            action_time=timestamp,
+            action_text=action_text,
+        )
+        parent_app = getattr(self, "parent_app", None)
+        activity_page = getattr(parent_app, "activity_log_page", None)
+        if activity_page and hasattr(activity_page, "load_activity_log"):
+            activity_page.load_activity_log()
 
     @staticmethod
-    def _format_activity_action(action: str) -> str:
+    def _format_activity_action(action: str, event_type: str = "", metadata=None) -> str:
         text = str(action or "").strip()
         if not text:
-            return "Unknown"
+            text = "Unknown"
+
+        details = {}
+        if isinstance(metadata, dict):
+            details = {str(k).strip().lower(): str(v).strip() for k, v in metadata.items()}
+
+        if not details:
+            event = text
+            payload = ""
+            if " " in text:
+                event, payload = text.split(" ", 1)
+            for token in str(payload or "").split(";"):
+                piece = token.strip()
+                if not piece or "=" not in piece:
+                    continue
+                key, value = piece.split("=", 1)
+                details[key.strip().lower()] = value.strip()
+
+        event_upper = str(event_type or "").strip().upper()
+        if not event_upper or event_upper == "LEGACY":
+            event_upper = text.split(" ", 1)[0].strip().upper() if text else "LEGACY"
+
         lowered = text.lower()
+        if event_upper == "LOGIN":
+            return "Login"
+        if event_upper == "LOGOUT":
+            return "Logout"
+        if event_upper == "PROFILE_UPDATED":
+            return "Profile Updated"
         if lowered == "login":
             return "Login"
         if lowered == "logout":
@@ -1549,6 +1677,37 @@ class UsersPage(QWidget):
             return "Availability Updated"
         if lowered == "profile updated":
             return "Profile Updated"
+        if event_upper == "ACCOUNT_DELETED":
+            target = details.get("target") or "Unknown"
+            role_name = details.get("target_role")
+            if role_name:
+                return f"Deleted account {target} ({role_name})"
+            return f"Deleted account {target}"
+        if event_upper == "ROLE_CHANGED":
+            target = details.get("target") or "Unknown"
+            new_role = details.get("new_role")
+            previous_role = details.get("previous_role")
+            if previous_role and new_role:
+                return f"Changed role for {target}: {previous_role} → {new_role}"
+            if new_role:
+                return f"Changed role for {target} to {new_role}"
+            return f"Changed role for {target}"
+        if event_upper == "PASSWORD_RESET":
+            target = details.get("target") or "Unknown"
+            return f"Reset password for {target}"
+        if event_upper == "USER_STATUS_CHANGED":
+            target = details.get("target") or "Unknown"
+            status_name = details.get("status") or "unknown"
+            return f"Changed status for {target} to {status_name}"
+        if event_upper == "USER_AVAILABILITY_UPDATED":
+            target = details.get("target") or "Unknown"
+            return f"Updated availability for {target}"
+        if event_upper == "ACCOUNT_CREATED":
+            target = details.get("target") or "Unknown"
+            role_name = details.get("role")
+            if role_name:
+                return f"Created account {target} ({role_name})"
+            return f"Created account {target}"
         if lowered.startswith("created as "):
             role = text[11:].strip()
             return f"Account Created ({role})" if role else "Account Created"
@@ -1556,17 +1715,380 @@ class UsersPage(QWidget):
             role = text[16:].strip()
             return f"Role Changed ({role})" if role else "Role Changed"
         if lowered.startswith("report_generated"):
+            patient_id = details.get("patient_id")
+            by_user = details.get("finalized_by")
+            file_name = details.get("file")
+            if patient_id and by_user:
+                message = f"Generated report PDF for {patient_id} ({by_user})"
+                if file_name:
+                    message += f" - {file_name}"
+                return message
+            if patient_id:
+                message = f"Generated report PDF for {patient_id}"
+                if file_name:
+                    message += f" - {file_name}"
+                return message
             return "Report PDF Generated"
         if lowered.startswith("referral_generated"):
+            patient_id = details.get("patient_id")
+            by_user = details.get("finalized_by")
+            file_name = details.get("file")
+            if patient_id and by_user:
+                message = f"Generated referral PDF for {patient_id} ({by_user})"
+                if file_name:
+                    message += f" - {file_name}"
+                return message
+            if patient_id:
+                message = f"Generated referral PDF for {patient_id}"
+                if file_name:
+                    message += f" - {file_name}"
+                return message
             return "Referral PDF Generated"
+        if event_upper == "SCREENED_PATIENT":
+            patient_id = details.get("patient_id") or "Unknown"
+            eye = details.get("eye") or "Eye not specified"
+            result = details.get("result") or "Result not specified"
+            confidence = details.get("confidence")
+            mode = details.get("mode")
+            suffix = f" ({mode})" if mode else ""
+            if confidence:
+                return f"Screened patient {patient_id}: {eye}, {result} ({confidence}%){suffix}"
+            return f"Screened patient {patient_id}: {eye}, {result}{suffix}"
+        if event_upper == "RECORD_OPENED":
+            patient_id = details.get("patient_id") or "Unknown"
+            source = details.get("source") or "reports"
+            return f"Opened patient record {patient_id} ({source})"
+        if event_upper == "RECORD_ARCHIVED":
+            patient_id = details.get("patient_id") or "Unknown"
+            return f"Archived patient record {patient_id}"
+        if event_upper == "RECORD_RESTORED":
+            patient_id = details.get("patient_id") or "Unknown"
+            return f"Restored patient record {patient_id}"
+        if event_upper == "REPORT_EXPORT_CSV":
+            rows = details.get("rows") or "0"
+            return f"Exported reports to CSV ({rows} rows)"
+        if event_upper == "ACTIVITY_LOG_EXPORT_CSV":
+            rows = details.get("rows") or "0"
+            return f"Exported activity log to CSV ({rows} rows)"
+        if event_upper == "REFERRAL_ASSIGNED":
+            referral_id = details.get("referral_id") or "Unknown"
+            assigned_to = details.get("assigned_to") or "Unknown"
+            return f"Assigned referral {referral_id} to {assigned_to}"
+        if event_upper == "REFERRAL_REASSIGNED":
+            referral_id = details.get("referral_id") or "Unknown"
+            assigned_to = details.get("assigned_to") or "Unknown"
+            return f"Reassigned referral {referral_id} to {assigned_to}"
+        if event_upper == "REFERRAL_STATUS_UPDATED":
+            referral_id = details.get("referral_id") or "Unknown"
+            from_status = details.get("from_status") or "Unknown"
+            to_status = details.get("to_status") or "Unknown"
+            return f"Updated referral {referral_id}: {from_status} -> {to_status}"
+        if event_upper == "REFERRAL_NOTE_UPDATED":
+            referral_id = details.get("referral_id") or "Unknown"
+            return f"Added clinical note to referral {referral_id}"
+        if event_upper == "EXTERNAL_REFERRAL_LETTER_GENERATED":
+            referral_id = details.get("referral_id") or "Unknown"
+            return f"Generated external referral letter {referral_id}"
+        if lowered.startswith("assigned referral "):
+            body = text[len("Assigned referral "):].strip()
+            if " to " in body:
+                referral_id, assignee = body.split(" to ", 1)
+                return f"Assigned referral {referral_id.strip()} to {assignee.strip()}"
+            return "Assigned referral"
+        if lowered.startswith("updated referral "):
+            body = text[len("Updated referral "):].strip()
+            if ":" in body:
+                referral_id, transition = body.split(":", 1)
+                return f"Updated referral {referral_id.strip()} ({transition.strip()})"
+            return "Updated referral status"
+        if lowered.startswith("updated referral note "):
+            referral_id = text[len("Updated referral note "):].strip()
+            if referral_id:
+                return f"Added clinical note to referral {referral_id}"
+            return "Added clinical referral note"
         if lowered.startswith("rescreen_allowed"):
-            return "Rescreen Allowed"
+            patient_id = details.get("patient_id") or "Unknown"
+            mode = "replace" if details.get("replace_mode") == "True" else "new"
+            return f"Rescreen allowed for {patient_id} ({mode})"
         if lowered.startswith("rescreen_blocked"):
-            return "Rescreen Blocked"
+            patient_id = details.get("patient_id") or "Unknown"
+            owner = details.get("owner") or "Unknown"
+            return f"Rescreen blocked for {patient_id} (owner: {owner})"
         return text
 
+    def apply_language(self, language: str):
+        from translations import get_pack
+        pack = get_pack(language)
+        self._usr_title_lbl.setText(pack["usr_title"])
+        self._usr_table_group.setTitle(pack["usr_table"])
+
+
+class ActivityLogPage(QWidget):
+    """Standalone admin activity log page."""
+
+    MAX_EXPORT_ROWS = 10000
+    LARGE_EXPORT_THRESHOLD = 2000
+    PAGE_SIZE = 100
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("usersPage")
+        self.setStyleSheet(_PAGE_STYLE)
+        self.current_page = 1
+        self.total_events = 0
+        self.total_pages = 1
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(14, 12, 14, 12)
+        main_layout.setSpacing(10)
+
+        header_row = QHBoxLayout()
+        self._title_lbl = QLabel("Activity Log")
+        self._title_lbl.setStyleSheet(
+            "font-size:22px;font-weight:700;color:#0d6efd;"
+            "font-family:'Segoe UI','Inter','Arial';"
+        )
+        header_row.addWidget(self._title_lbl)
+        header_row.addStretch()
+        main_layout.addLayout(header_row)
+
+        compliance_group = QGroupBox("Audit Summary")
+        compliance_layout = QHBoxLayout(compliance_group)
+        compliance_layout.setContentsMargins(10, 8, 10, 8)
+        compliance_layout.setSpacing(20)
+
+        self._summary_total_lbl = QLabel("Total Events: —")
+        self._summary_total_lbl.setStyleSheet("font-size:11px;color:#495057;")
+
+        self._summary_admin_lbl = QLabel("Admin Actions: —")
+        self._summary_admin_lbl.setStyleSheet("font-size:11px;color:#495057;")
+
+        self._summary_clinical_lbl = QLabel("Clinical Actions: —")
+        self._summary_clinical_lbl.setStyleSheet("font-size:11px;color:#495057;")
+
+        self._summary_last_export_lbl = QLabel("Last Export: Never")
+        self._summary_last_export_lbl.setStyleSheet("font-size:11px;color:#495057;")
+
+        compliance_layout.addWidget(self._summary_total_lbl)
+        compliance_layout.addWidget(self._summary_admin_lbl)
+        compliance_layout.addWidget(self._summary_clinical_lbl)
+        compliance_layout.addWidget(self._summary_last_export_lbl)
+        compliance_layout.addStretch()
+        main_layout.addWidget(compliance_group)
+
+        self._log_group = QGroupBox("Activity Log")
+        log_vbox = QVBoxLayout(self._log_group)
+
+        log_hdr = QHBoxLayout()
+        log_hdr.setContentsMargins(2, 0, 2, 2)
+
+        log_hdr_col = QVBoxLayout()
+        log_hdr_col.setSpacing(0)
+        self._section_title = QLabel("Activity Log")
+        self._section_title.setObjectName("usrSectionTitle")
+        self._section_hint = QLabel("Latest admin, account, and clinical audit events")
+        self._section_hint.setObjectName("usrSectionHint")
+        log_hdr_col.addWidget(self._section_title)
+        log_hdr_col.addWidget(self._section_hint)
+        log_hdr.addLayout(log_hdr_col)
+        log_hdr.addStretch()
+
+        controls = QWidget()
+        controls_row = QHBoxLayout(controls)
+        controls_row.setContentsMargins(0, 0, 0, 0)
+        controls_row.setSpacing(8)
+
+        self.log_search_input = QLineEdit()
+        self.log_search_input.setObjectName("usrSearchInput")
+        self.log_search_input.setPlaceholderText("Search activity log")
+        self.log_search_input.setMinimumWidth(220)
+        self.log_search_input.setMaximumWidth(360)
+        self.log_search_input.textChanged.connect(self._reset_and_reload)
+
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setDisplayFormat("yyyy-MM-dd")
+        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.dateChanged.connect(self._reset_and_reload)
+
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setDisplayFormat("yyyy-MM-dd")
+        self.date_to.setDate(QDate.currentDate())
+        self.date_to.dateChanged.connect(self._reset_and_reload)
+
+        preset_today_btn = QPushButton("Today")
+        preset_today_btn.setObjectName("smallBtn")
+        preset_today_btn.setMaximumWidth(65)
+        preset_today_btn.clicked.connect(self._set_preset_today)
+
+        preset_7d_btn = QPushButton("7 Days")
+        preset_7d_btn.setObjectName("smallBtn")
+        preset_7d_btn.setMaximumWidth(65)
+        preset_7d_btn.clicked.connect(self._set_preset_7d)
+
+        preset_30d_btn = QPushButton("30 Days")
+        preset_30d_btn.setObjectName("smallBtn")
+        preset_30d_btn.setMaximumWidth(65)
+        preset_30d_btn.clicked.connect(self._set_preset_30d)
+
+        self.events_chip = QLabel("Events 0")
+        self.events_chip.setObjectName("usrStatTotal")
+
+        self.export_activity_btn = QPushButton("Export CSV")
+        self.export_activity_btn.setObjectName("neutralBtn")
+        self.export_activity_btn.clicked.connect(self.export_activity_log_csv)
+
+        self.prev_page_btn = QPushButton("Prev")
+        self.prev_page_btn.setObjectName("neutralBtn")
+        self.prev_page_btn.clicked.connect(self._go_prev_page)
+
+        self.next_page_btn = QPushButton("Next")
+        self.next_page_btn.setObjectName("neutralBtn")
+        self.next_page_btn.clicked.connect(self._go_next_page)
+
+        self.page_chip = QLabel("Page 1/1")
+        self.page_chip.setObjectName("usrStatViewer")
+
+        controls_row.addWidget(self.log_search_input)
+        controls_row.addWidget(QLabel("From"))
+        controls_row.addWidget(self.date_from)
+        controls_row.addWidget(QLabel("To"))
+        controls_row.addWidget(self.date_to)
+        controls_row.addWidget(preset_today_btn)
+        controls_row.addWidget(preset_7d_btn)
+        controls_row.addWidget(preset_30d_btn)
+        controls_row.addWidget(self.events_chip)
+        controls_row.addWidget(self.page_chip)
+        controls_row.addWidget(self.prev_page_btn)
+        controls_row.addWidget(self.next_page_btn)
+        controls_row.addWidget(self.export_activity_btn)
+        log_hdr.addWidget(controls)
+        log_vbox.addLayout(log_hdr)
+
+        self.activity_log = QTableWidget(0, 3)
+        self.activity_log.setObjectName("usrActivityTable")
+        self.activity_log.setHorizontalHeaderLabels(["Username", "Action", "Date-Time"])
+        self.activity_log.setSelectionMode(QAbstractItemView.NoSelection)
+        self.activity_log.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.activity_log.verticalHeader().setVisible(False)
+        self.activity_log.setShowGrid(False)
+        self.activity_log.horizontalHeader().setStretchLastSection(False)
+        self.activity_log.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.activity_log.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.activity_log.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.activity_log.horizontalHeader().setMinimumSectionSize(90)
+        self.activity_log.setWordWrap(True)
+        self.activity_log.setMinimumHeight(200)
+        self.activity_log.setSortingEnabled(True)
+        log_vbox.addWidget(self.activity_log)
+
+        main_layout.addWidget(self._log_group, 1)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("statusBar")
+        self.status_label.setStyleSheet("color:#6c757d;font-size:12px;padding:2px 0;")
+        main_layout.addWidget(self.status_label)
+
+        self.load_activity_log()
+
+    def _actor_context(self):
+        parent_app = getattr(self, "parent_app", None)
+        username = getattr(parent_app, "username", None)
+        role = getattr(parent_app, "role", None)
+        return username, role
+
+    def _check_admin_password(self, acting_password):
+        current_username, _ = self._actor_context()
+        if not _verify_acting_admin(current_username, acting_password):
+            QMessageBox.warning(self, "Incorrect Password", "Your admin password is incorrect.")
+            return False
+        return True
+
+    def _set_status(self, message, ok=True):
+        color = "#198754" if ok else "#dc3545"
+        icon = "\u2713" if ok else "\u2717"
+        self.status_label.setStyleSheet(
+            f"color:{color};font-size:12px;font-weight:600;padding:2px 0;"
+        )
+        self.status_label.setText(f"{icon}  {message}")
+
+    def _current_filters(self):
+        search_text = self.log_search_input.text().strip()
+        start_date = self.date_from.date()
+        end_date = self.date_to.date()
+        if end_date < start_date:
+            start_date, end_date = end_date, start_date
+        return {
+            "query": search_text,
+            "from_time": start_date.toString("yyyy-MM-dd"),
+            "to_time": end_date.toString("yyyy-MM-dd"),
+        }
+
+    def _reset_and_reload(self):
+        self.current_page = 1
+        self.load_activity_log()
+
+    def _go_prev_page(self):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.load_activity_log()
+
+    def _go_next_page(self):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.load_activity_log()
+
+    def _set_preset_today(self):
+        today = QDate.currentDate()
+        self.date_from.setDate(today)
+        self.date_to.setDate(today)
+
+    def _set_preset_7d(self):
+        today = QDate.currentDate()
+        self.date_from.setDate(today.addDays(-7))
+        self.date_to.setDate(today)
+
+    def _set_preset_30d(self):
+        today = QDate.currentDate()
+        self.date_from.setDate(today.addDays(-30))
+        self.date_to.setDate(today)
+
     def load_activity_log(self):
-        entries = user_store.get_recent_activity(limit=300)
+        filters = self._current_filters()
+        offset = (self.current_page - 1) * self.PAGE_SIZE
+        acting_username, acting_role = self._actor_context()
+        entries, total = user_store.get_activity_logs(
+            from_time=filters["from_time"],
+            to_time=filters["to_time"],
+            query=filters["query"],
+            limit=self.PAGE_SIZE,
+            offset=offset,
+            acting_username=acting_username,
+            acting_role=acting_role,
+        )
+
+        self.total_events = total
+        self.total_pages = max(1, (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        if self.current_page > self.total_pages:
+            self.current_page = self.total_pages
+            offset = (self.current_page - 1) * self.PAGE_SIZE
+            entries, total = user_store.get_activity_logs(
+                from_time=filters["from_time"],
+                to_time=filters["to_time"],
+                query=filters["query"],
+                limit=self.PAGE_SIZE,
+                offset=offset,
+                acting_username=acting_username,
+                acting_role=acting_role,
+            )
+            self.total_events = total
+
+        self.events_chip.setText(f"Events {self.total_events}")
+        self.page_chip.setText(f"Page {self.current_page}/{self.total_pages}")
+        self.prev_page_btn.setEnabled(self.current_page > 1)
+        self.next_page_btn.setEnabled(self.current_page < self.total_pages)
+
         self.activity_log.setSortingEnabled(False)
         self.activity_log.setRowCount(0)
         for entry in entries:
@@ -1574,13 +2096,16 @@ class UsersPage(QWidget):
             self.activity_log.insertRow(row)
 
             username = str(entry.get("username") or "").strip()
-            action = self._format_activity_action(entry.get("action"))
+            action = UsersPage._format_activity_action(
+                entry.get("action"),
+                event_type=entry.get("event_type"),
+                metadata=entry.get("metadata"),
+            )
             timestamp = str(entry.get("time") or "").strip()
 
             username_item = QTableWidgetItem(username)
             action_item = QTableWidgetItem(action)
             time_item = QTableWidgetItem(timestamp)
-
             username_item.setFlags(username_item.flags() & ~Qt.ItemIsEditable)
             action_item.setFlags(action_item.flags() & ~Qt.ItemIsEditable)
             time_item.setFlags(time_item.flags() & ~Qt.ItemIsEditable)
@@ -1591,14 +2116,183 @@ class UsersPage(QWidget):
 
         self.activity_log.setSortingEnabled(True)
         self.activity_log.sortItems(2, Qt.DescendingOrder)
+        self.activity_log.resizeRowsToContents()
+
+        self._update_compliance_summary(entries)
+
+    def _update_compliance_summary(self, entries):
+        """Update the audit compliance summary card with stats from the current view."""
+        if not entries:
+            self._summary_total_lbl.setText("Total Events: 0")
+            self._summary_admin_lbl.setText("Admin Actions: 0")
+            self._summary_clinical_lbl.setText("Clinical Actions: 0")
+            return
+
+        admin_count = 0
+        clinical_count = 0
+        last_export_time = None
+
+        for entry in entries:
+            event_type = str(entry.get("event_type") or "").strip().upper()
+            username = str(entry.get("username") or "").strip()
+
+            if event_type in [
+                "CREATE_USER",
+                "UPDATE_USER_ROLE",
+                "DELETE_USER",
+                "RESET_PASSWORD",
+                "UPDATE_USER_ACTIVE_STATUS",
+                "UPDATE_USER_AVAILABILITY",
+                "ACTIVITY_LOG_EXPORT_CSV",
+            ]:
+                admin_count += 1
+            elif event_type in [
+                "SCREENED_PATIENT",
+                "RECORD_OPENED",
+                "RECORD_ARCHIVED",
+                "RECORD_RESTORED",
+                "REPORT_PDF_GENERATED",
+                "REPORT_EXPORT_CSV",
+                "REFERRAL_ASSIGNED",
+                "REFERRAL_REASSIGNED",
+                "REFERRAL_STATUS_UPDATED",
+                "REFERRAL_NOTE_UPDATED",
+                "EXTERNAL_REFERRAL_LETTER_GENERATED",
+            ]:
+                clinical_count += 1
+
+            if event_type == "ACTIVITY_LOG_EXPORT_CSV" and last_export_time is None:
+                last_export_time = str(entry.get("time") or "").strip()
+
+        self._summary_total_lbl.setText(f"Total Events: {self.total_events}")
+        self._summary_admin_lbl.setText(f"Admin Actions: {admin_count}")
+        self._summary_clinical_lbl.setText(f"Clinical Actions: {clinical_count}")
+        if last_export_time:
+            self._summary_last_export_lbl.setText(f"Last Export: {last_export_time}")
+        else:
+            self._summary_last_export_lbl.setText("Last Export: Never")
+
+    def export_activity_log_csv(self):
+        current_username, current_role = self._actor_context()
+        if str(current_role or "").strip().lower() != "admin":
+            QMessageBox.warning(self, "Access Denied", "Only admin users can export activity logs.")
+            return
+
+        filters = self._current_filters()
+        entries = []
+        offset = 0
+        while len(entries) < self.MAX_EXPORT_ROWS:
+            batch, _total = user_store.get_activity_logs(
+                from_time=filters["from_time"],
+                to_time=filters["to_time"],
+                query=filters["query"],
+                limit=500,
+                offset=offset,
+                acting_username=current_username,
+                acting_role=current_role,
+            )
+            if not batch:
+                break
+            entries.extend(batch)
+            offset += len(batch)
+            if len(batch) < 500:
+                break
+
+        if not entries:
+            QMessageBox.information(self, "Export Activity Log", "No activity log entries to export.")
+            return
+
+        export_reason = ""
+        if len(entries) > self.LARGE_EXPORT_THRESHOLD:
+            reason, accepted = QInputDialog.getText(
+                self,
+                "Export Reason Required",
+                (
+                    f"You are exporting {len(entries)} entries.\n"
+                    "Enter a brief reason for this large export:"
+                ),
+            )
+            if not accepted:
+                return
+            export_reason = str(reason or "").strip()
+            if not export_reason:
+                QMessageBox.warning(self, "Export Activity Log", "Reason is required for large exports.")
+                return
+
+        acting_password = UsersPage.prompt_for_admin_password(self, "export the activity log")
+        if acting_password is None:
+            return
+        if not self._check_admin_password(acting_password):
+            return
+
+        start_date = filters["from_time"]
+        end_date = filters["to_time"]
+        default_name = f"EyeShield_ActivityLog_{start_date}_to_{end_date}_{datetime.now().strftime('%H%M%S')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Export Activity Log", default_name, "CSV Files (*.csv)")
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path = f"{path}.csv"
+
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as file_obj:
+                writer = csv.writer(file_obj)
+                writer.writerow(["Username", "Action", "Date-Time", "Event Type", "Metadata JSON", "Raw Event"])
+                for entry in entries:
+                    writer.writerow(
+                        [
+                            str(entry.get("username") or "").strip(),
+                            UsersPage._format_activity_action(
+                                entry.get("action"),
+                                event_type=entry.get("event_type"),
+                                metadata=entry.get("metadata"),
+                            ),
+                            str(entry.get("time") or "").strip(),
+                            str(entry.get("event_type") or "LEGACY").strip(),
+                            json.dumps(entry.get("metadata") or {}, ensure_ascii=True, separators=(",", ":")),
+                            str(entry.get("action") or "").strip(),
+                        ]
+                    )
+        except OSError as err:
+            QMessageBox.warning(self, "Export Activity Log", f"Failed to export activity log: {err}")
+            return
+
+        search_text = filters["query"].strip()
+        user_store.log_activity_event(
+            str(current_username or "system").strip(),
+            "ACTIVITY_LOG_EXPORT_CSV",
+            metadata={
+                "rows": len(entries),
+                "query": search_text or "<none>",
+                "from": start_date,
+                "to": end_date,
+                "path": os.path.basename(path),
+                "reason": export_reason or "<not-required>",
+            },
+            action_time=_utc_now_iso(),
+            action_text=(
+                "ACTIVITY_LOG_EXPORT_CSV "
+                f"rows={len(entries)};"
+                f"query={search_text or '<none>'};"
+                f"from={start_date};"
+                f"to={end_date};"
+                f"path={os.path.basename(path)};"
+                f"reason={export_reason or '<not-required>'}"
+            ),
+        )
+        self.load_activity_log()
+        self._set_status(f"Exported activity log ({len(entries)} rows)")
+        QMessageBox.information(
+            self,
+            "Export Activity Log",
+            f"Exported {len(entries)} entries to:\n{path}",
+        )
 
     def apply_language(self, language: str):
         from translations import get_pack
+
         pack = get_pack(language)
-        self._usr_title_lbl.setText(pack["usr_title"])
-        self._usr_table_group.setTitle(pack["usr_table"])
-        self._usr_log_group.setTitle(pack["usr_log"])
-        if hasattr(self, "admin_tabs"):
-            self.admin_tabs.setTabText(0, pack["usr_table"])
-            self.admin_tabs.setTabText(1, pack["usr_log"])
+        self._title_lbl.setText(pack["usr_log"])
+        self._section_title.setText(pack["usr_log"])
+        self._log_group.setTitle(pack["usr_log"])
 
