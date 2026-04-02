@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QTimeEdit,
     QSpinBox,
+    QAbstractSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
@@ -541,6 +542,9 @@ class SettingsPage(QWidget):
         self.timeout_spin.setRange(1, 240)
         self.timeout_spin.setValue(15)
         self.timeout_spin.setSuffix(" min")
+        self.timeout_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.timeout_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.timeout_spin.setMinimumHeight(34)
         timeout_grid.addWidget(self.timeout_label, 0, 0)
         timeout_grid.addWidget(self.timeout_spin, 1, 0)
 
@@ -550,6 +554,9 @@ class SettingsPage(QWidget):
         self.warning_spin.setRange(10, 300)
         self.warning_spin.setValue(30)
         self.warning_spin.setSuffix(" sec")
+        self.warning_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.warning_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.warning_spin.setMinimumHeight(34)
         timeout_grid.addWidget(self.warning_label, 0, 1)
         timeout_grid.addWidget(self.warning_spin, 1, 1)
         session_layout.addLayout(timeout_grid)

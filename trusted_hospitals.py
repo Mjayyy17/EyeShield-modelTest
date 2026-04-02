@@ -1,6 +1,7 @@
 import os
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -141,27 +142,28 @@ class TrustedHospitalsPage(QWidget):
             """
             QWidget {
                 background: #ffffff;
-                color: #1f2a37;
+                color: #1a1a1a;
                 font-size: 13px;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                font-weight: 400;
             }
             QFrame#trustedHero {
                 background: #ffffff;
-                border: 1px solid #dbe7f5;
+                border: 1px solid #dbeafe;
                 border-radius: 12px;
             }
             QLabel#headerTitle {
-                color: #1e40af;
-                font-size: 24px;
-                font-weight: 700;
+                color: #1d4ed8;
+                font-size: 20px;
+                font-weight: 400;
                 background: transparent;
             }
             QGroupBox {
                 background: #ffffff;
-                border: 1px solid #dbe7f5;
+                border: 1px solid #dbeafe;
                 border-radius: 12px;
                 margin-top: 8px;
-                font-weight: 700;
+                font-weight: 400;
                 padding: 12px;
             }
             QGroupBox::title {
@@ -169,107 +171,123 @@ class TrustedHospitalsPage(QWidget):
                 left: 14px;
                 padding: 0 8px;
                 background: #ffffff;
-                color: #1e3a8a;
+                color: #1d4ed8;
                 font-size: 12px;
+                font-weight: 400;
                 letter-spacing: 0.5px;
             }
             QLabel#fieldLabel {
-                color: #324a67;
-                font-size: 11px;
-                font-weight: 700;
+                color: #6b7280;
+                font-size: 12px;
+                font-weight: 400;
                 letter-spacing: 0.5px;
             }
             QLabel#metaLabel {
-                color: #51667d;
+                color: #6b7280;
                 font-size: 13px;
+                font-weight: 400;
             }
             QLineEdit {
                 background: #ffffff;
-                border: 1px solid #c7d8ec;
-                border-radius: 9px;
+                border: 1px solid #bfdbfe;
+                border-radius: 8px;
                 padding: 8px 10px;
                 min-height: 22px;
             }
             QLineEdit:hover {
-                border: 1px solid #93c5fd;
+                border: 1px solid #60a5fa;
             }
             QLineEdit:focus {
-                border: 1px solid #3b82f6;
+                border: 1px solid #60a5fa;
             }
             QPushButton {
                 background: #ffffff;
-                color: #1f2937;
-                border: 1px solid #c7d8ec;
-                border-radius: 9px;
+                color: #1a1a1a;
+                border: 1px solid #bfdbfe;
+                border-radius: 8px;
                 padding: 7px 12px;
-                font-weight: 600;
+                font-weight: 400;
             }
             QPushButton:hover {
-                background: #eef4ff;
+                background: #eff6ff;
             }
             QPushButton#primaryAction {
                 background: #2563eb;
                 color: #ffffff;
                 border: 1px solid #1d4ed8;
+                font-weight: 400;
             }
             QPushButton#primaryAction:hover {
                 background: #1d4ed8;
             }
             QTableWidget {
                 background: #ffffff;
-                border: 1px solid #dbe7f5;
+                border: 1px solid #dbeafe;
                 border-radius: 10px;
-                gridline-color: #f1f5f9;
+                gridline-color: transparent;
             }
             QHeaderView::section {
                 background: #ffffff;
-                color: #1e3a8a;
+                color: #1d4ed8;
                 border: none;
-                border-bottom: 1px solid #dbe7f5;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 8px;
+                border-bottom: 1px solid #dbeafe;
+                font-size: 12px;
+                font-weight: 400;
+                padding: 10px 16px;
             }
             QCheckBox {
                 spacing: 8px;
-                color: #23354c;
+                color: #1a1a1a;
                 background: transparent;
                 font-size: 13px;
+                font-weight: 400;
             }
             QCheckBox::indicator {
                 width: 16px;
                 height: 16px;
-                border: 1px solid #9fb6d1;
+                border: 1px solid #bfdbfe;
                 border-radius: 4px;
                 background: #ffffff;
             }
             QCheckBox::indicator:checked {
-                background: #3b82f6;
-                border: 1px solid #2563eb;
+                background: #2563eb;
+                border: 1px solid #1d4ed8;
             }
             QLabel#statusLabel {
-                color: #3f556e;
+                color: #6b7280;
                 font-size: 12px;
+                font-weight: 400;
                 padding: 2px 0;
                 border: none;
                 background: transparent;
             }
             QPushButton#ghostAction {
                 background: #ffffff;
-                border: 1px solid #c7d8ec;
-                color: #1f2937;
-                font-weight: 700;
+                border: 1px solid #bfdbfe;
+                color: #1a1a1a;
+                font-weight: 400;
                 padding: 8px 12px;
             }
             QPushButton#ghostAction:hover {
-                background: #eef4ff;
+                background: #eff6ff;
             }
             """
         )
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root_layout = QHBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        root_layout.addStretch(1)
+
+        page_container = QWidget()
+        page_container.setMinimumWidth(1200)
+        page_container.setMaximumWidth(1200)
+        root_layout.addWidget(page_container)
+        root_layout.addStretch(1)
+
+        root = QVBoxLayout(page_container)
+        root.setContentsMargins(32, 32, 32, 32)
+        root.setSpacing(16)
 
         hero = QFrame()
         hero.setObjectName("trustedHero")
@@ -300,21 +318,23 @@ class TrustedHospitalsPage(QWidget):
 
         self.referral_hospitals_table = QTableWidget(0, 4)
         self.referral_hospitals_table.setHorizontalHeaderLabels(["Hospital / Clinic", "Department", "Contact", "Status"])
-        self.referral_hospitals_table.setAlternatingRowColors(True)
         self.referral_hospitals_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.referral_hospitals_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.referral_hospitals_table.setSelectionMode(QTableWidget.SingleSelection)
         self.referral_hospitals_table.verticalHeader().setVisible(False)
-        self.referral_hospitals_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.referral_hospitals_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.referral_hospitals_table.setShowGrid(False)
+        self.referral_hospitals_table.setAlternatingRowColors(False)
+        self.referral_hospitals_table.horizontalHeader().setStretchLastSection(False)
+        self.referral_hospitals_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.referral_hospitals_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.referral_hospitals_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.referral_hospitals_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.referral_hospitals_table.horizontalHeader().setMinimumSectionSize(90)
+        self.referral_hospitals_table.setWordWrap(True)
         self.referral_hospitals_table.itemSelectionChanged.connect(self._sync_referral_action_buttons)
         self.referral_hospitals_table.itemDoubleClicked.connect(self._edit_selected_referral_hospital)
         self.referral_hospitals_table.setMinimumHeight(200)
-        self.referral_hospitals_table.setStyleSheet(
-            "QTableWidget::item { padding: 6px; border: none; background-color: #ffffff; }"
-            "QTableWidget::item:alternate { background-color: #f8fbff; }"
-            "QTableWidget::item:selected { background-color: #e7f0ff; color: #1f2937; }"
-        )
+        self.referral_hospitals_table.setSortingEnabled(False)
         referral_layout.addWidget(self.referral_hospitals_table)
 
         action_row = QHBoxLayout()
@@ -344,6 +364,11 @@ class TrustedHospitalsPage(QWidget):
         main_window = self.window()
         role = getattr(main_window, "role", None) if main_window is not self else None
         return str(role or os.environ.get("EYESHIELD_CURRENT_ROLE") or "").strip().lower()
+
+    def _active_username(self) -> str:
+        main_window = self.window()
+        username = getattr(main_window, "username", None) if main_window is not self else None
+        return str(username or os.environ.get("EYESHIELD_CURRENT_USER") or "").strip()
 
     def _configure_referral_hospitals_section(self):
         show_referrals = self._active_role() == "admin"
@@ -378,6 +403,13 @@ class TrustedHospitalsPage(QWidget):
             if item.get("is_default"):
                 status_chunks.append("Default")
             self.referral_hospitals_table.setItem(row_index, 3, QTableWidgetItem(" / ".join(status_chunks)))
+            
+            # Apply alternating row background colors for better readability (matching activity log style)
+            bg_color = QColor("#ffffff") if row_index % 2 == 0 else QColor("#f3f4f6")
+            for col in range(4):
+                item_widget = self.referral_hospitals_table.item(row_index, col)
+                if item_widget:
+                    item_widget.setBackground(bg_color)
         self._sync_referral_action_buttons()
 
     def _selected_referral_hospital(self):
@@ -504,7 +536,17 @@ class TrustedHospitalsPage(QWidget):
         self._reload_referral_hospitals()
         action_label = "Updated" if selected_id else "Added"
         event_type = "TRUSTED_REFERRAL_UPDATED" if selected_id else "TRUSTED_REFERRAL_ADDED"
-        self._log_referral_audit(event_type, f"{action_label} trusted referral: {hospital_name}")
+        
+        # Build audit item with new hospital data
+        audit_item = {
+            "id": hospital_id,
+            "hospital_name": hospital_name,
+            "department": values.get("department", ""),
+            "contact_person": values.get("contact_person", ""),
+            "is_active": values.get("is_active", True),
+            "is_default": values.get("is_default", False),
+        }
+        self._log_referral_audit(event_type, f"{action_label} trusted referral: {hospital_name}", item=audit_item)
         self.status_label.setText(f"{action_label}: {hospital_name}")
         QMessageBox.information(self, "Trusted Referrals", f"{action_label} successfully: {hospital_name}")
 

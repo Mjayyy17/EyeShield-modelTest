@@ -717,6 +717,19 @@ _ACTIVITY_LOG_STYLE = """
     QPushButton#neutralBtn:hover {
         background: #eff6ff;
     }
+    QPushButton#ghostAction {
+        background: #ffffff;
+        border: 1px solid #bfdbfe;
+        color: #1a1a1a;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-family: 'Segoe UI';
+        font-weight: 400;
+    }
+    QPushButton#ghostAction:hover {
+        background: #eff6ff;
+    }
     QTableWidget#usrActivityTable {
         background: #ffffff;
         border: none;
@@ -845,11 +858,16 @@ _ACTIVITY_LOG_STYLE = """
         border: none;
         gridline-color: transparent;
         font-size: 13px;
-        alternate-background-color: #ffffff;
+        font-family: 'Segoe UI';
+        alternate-background-color: #f3f4f6;
     }
     QTableWidget#usrUsersTable::item {
+        background: #ffffff;
         padding: 11px 16px;
         border-bottom: 1px solid #f3f4f6;
+    }
+    QTableWidget#usrUsersTable::item:alternate {
+        background: #f3f4f6;
     }
     QTableWidget#usrUsersTable::item:hover {
         background: #eff6ff;
@@ -1632,7 +1650,7 @@ class UsersPage(QWidget):
         users_toolbar.addStretch()
 
         self.new_user_btn = QPushButton("\u002b  New User")
-        self.new_user_btn.setObjectName("primaryBtn")
+        self.new_user_btn.setObjectName("ghostAction")
         self.new_user_btn.clicked.connect(self._open_new_user_dialog)
         self.new_user_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         users_toolbar.addWidget(self.new_user_btn)
@@ -2122,6 +2140,7 @@ class UsersPage(QWidget):
             self.users_table.setItem(row, 4, availability_days_item)
             self.users_table.setItem(row, 5, role_item)
             self.users_table.setItem(row, 6, status_item)
+            
         self.users_table.resizeRowsToContents()
         self._sync_status_action_labels()
 
@@ -3143,6 +3162,13 @@ class ActivityLogPage(QWidget):
 
             action_item.setForeground(QColor("#6b7280"))
             time_item.setForeground(QColor("#9ca3af"))
+            
+            # Apply alternating row background colors for better readability
+            bg_color = QColor("#ffffff") if row % 2 == 0 else QColor("#f3f4f6")
+            for col in range(4):
+                item = self.activity_log.item(row, col)
+                if item:
+                    item.setBackground(bg_color)
 
         if not entries:
             self.activity_log.setRowCount(1)

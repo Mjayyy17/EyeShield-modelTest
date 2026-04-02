@@ -188,6 +188,8 @@ class EyeShieldApp(QMainWindow):
             label.setFixedWidth(60)
             label.setWordWrap(True)
             label.setFont(EyeShieldApp._make_nav_font(8))
+            if str(self.role or "").strip().lower() == "admin":
+                label.setFont(QFont("Segoe UI", 8))
             label.setStyleSheet("font-size: 10px; color: #495057; margin-top: 0px; text-decoration: none; border: none;")
 
             v.addWidget(btn, 0, Qt.AlignHCenter)

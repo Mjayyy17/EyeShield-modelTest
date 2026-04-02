@@ -13,7 +13,7 @@ import re
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox,
     QScrollArea, QFrame, QProgressBar, QMessageBox, QFileDialog, QStyle, QProgressDialog, QApplication, QDialog,
-    QComboBox, QLineEdit
+    QComboBox, QLineEdit, QTextEdit
 )
 from PySide6.QtGui import QPixmap, QFont, QPainter, QColor, QIcon, QPalette, QImage, QPdfWriter, QPageSize, QPageLayout, QTextDocument
 from PySide6.QtCore import Qt, QSize, QEvent, QTimer, QByteArray, QBuffer, QIODevice, QMarginsF
@@ -333,15 +333,12 @@ class ResultsWindow(QWidget):
         image_row.addWidget(heatmap_card, 1)
         layout.addLayout(image_row)
 
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(16)
-
         class_card = QFrame()
         class_card.setObjectName("resultStatCard")
         class_layout = QVBoxLayout(class_card)
         class_layout.setContentsMargins(18, 18, 18, 18)
         class_layout.setSpacing(8)
-        class_title = QLabel("CLASSIFICATION")
+        class_title = QLabel("AI CLASSIFICATION")
         class_title.setObjectName("resultStatTitle")
         self.classification_value = QLabel("Pending")
         self.classification_value.setObjectName("classificationValue")
@@ -352,13 +349,13 @@ class ResultsWindow(QWidget):
         class_layout.addWidget(self.classification_value)
         class_layout.addWidget(self.classification_subtitle)
 
-        decision_group = QGroupBox("Clinical Decision (ICDR)")
+        decision_group = QGroupBox("Doctor Assessment")
         decision_group.setObjectName("resultGroupCard")
         decision_layout = QVBoxLayout(decision_group)
         decision_layout.setContentsMargins(14, 14, 14, 14)
         decision_layout.setSpacing(8)
 
-        self.final_dx_label = QLabel("Final Diagnosis: Based on ICDR Severity Scale")
+        self.final_dx_label = QLabel("Doctor's Classification")
         self.final_dx_label.setObjectName("resultStatTitle")
         decision_layout.addWidget(self.final_dx_label)
 
@@ -376,11 +373,11 @@ class ResultsWindow(QWidget):
         doctor_row.setSpacing(8)
         doctor_tag = QLabel("Doctor")
         doctor_tag.setObjectName("savedPill")
-        self.doctor_classification_combo = QComboBox()
-        self.doctor_classification_combo.addItems(ICDR_OPTIONS)
-        self.doctor_classification_combo.currentTextChanged.connect(self._on_doctor_classification_changed)
+        self.doctor_classification_input = QLineEdit()
+        self.doctor_classification_input.setPlaceholderText("Enter doctor classification (e.g., No DR)")
+        self.doctor_classification_input.textChanged.connect(self._on_doctor_classification_changed)
         doctor_row.addWidget(doctor_tag)
-        doctor_row.addWidget(self.doctor_classification_combo, 1)
+        doctor_row.addWidget(self.doctor_classification_input, 1)
         decision_layout.addLayout(doctor_row)
 
         action_row = QHBoxLayout()
@@ -393,36 +390,47 @@ class ResultsWindow(QWidget):
         action_row.addWidget(self.override_ai_btn)
         decision_layout.addLayout(action_row)
 
-        self.override_reason_label = QLabel("Override justification (required if different from AI):")
-        self.override_reason_label.setObjectName("metaText")
-        self.override_reason_input = QLineEdit()
-        self.override_reason_input.setPlaceholderText("Provide concise clinical justification...")
-        self.override_reason_input.textChanged.connect(self._on_override_reason_changed)
-        decision_layout.addWidget(self.override_reason_label)
-        decision_layout.addWidget(self.override_reason_input)
+        comments_grid = QGridLayout()
+        comments_grid.setHorizontalSpacing(12)
+        comments_grid.setVerticalSpacing(6)
+        comments_grid.setColumnStretch(0, 1)
+        comments_grid.setColumnStretch(1, 1)
 
-        self.findings_label = QLabel("Doctor findings and classification comment:")
+        self.override_reason_label = QLabel("Override justification of results")
+        self.override_reason_label.setObjectName("metaText")
+        self.override_reason_input = QTextEdit()
+        self.override_reason_input.setObjectName("overrideCommentBox")
+        self.override_reason_input.setPlaceholderText("Provide concise clinical justification...")
+        self.override_reason_input.setMinimumHeight(110)
+        self.override_reason_input.textChanged.connect(self._on_override_reason_changed)
+
+        self.findings_label = QLabel("Doctor findings and classification comments")
         self.findings_label.setObjectName("metaText")
-        self.findings_input = QLineEdit()
+        self.findings_input = QTextEdit()
+        self.findings_input.setObjectName("findingsCommentBox")
         self.findings_input.setPlaceholderText("Document retinal findings supporting the selected ICDR classification...")
+        self.findings_input.setMinimumHeight(110)
         self.findings_input.textChanged.connect(self._on_findings_changed)
-        decision_layout.addWidget(self.findings_label)
-        decision_layout.addWidget(self.findings_input)
+
+        comments_grid.addWidget(self.override_reason_label, 0, 0)
+        comments_grid.addWidget(self.findings_label, 0, 1)
+        comments_grid.addWidget(self.override_reason_input, 1, 0)
+        comments_grid.addWidget(self.findings_input, 1, 1)
+        decision_layout.addLayout(comments_grid)
 
         self.decision_hint = QLabel("AI is decision support. Doctor classification is the final authority.")
         self.decision_hint.setObjectName("metaText")
         self.decision_hint.setWordWrap(True)
         decision_layout.addWidget(self.decision_hint)
-        layout.addWidget(decision_group)
 
         confidence_card = QFrame()
         confidence_card.setObjectName("resultStatCard")
         confidence_layout = QVBoxLayout(confidence_card)
         confidence_layout.setContentsMargins(18, 18, 18, 18)
         confidence_layout.setSpacing(8)
-        confidence_title = QLabel("PREDICTION CONFIDENCE")
+        confidence_title = QLabel("AI PREDICTION CONFIDENCE")
         confidence_title.setObjectName("resultStatTitle")
-        self.confidence_value = QLabel("CONFIDENCE  0.0%")
+        self.confidence_value = QLabel("Confidence: 0.0%")
         self.confidence_value.setObjectName("monoValue")
         self.confidence_bar = QProgressBar()
         self.confidence_bar.setRange(0, 1000)
@@ -430,7 +438,7 @@ class ResultsWindow(QWidget):
         self.confidence_bar.setTextVisible(False)
         self.confidence_bar.setObjectName("confidenceBar")
         self.confidence_bar.setFixedHeight(8)
-        self.uncertainty_value = QLabel("UNCERTAINTY  0.0%")
+        self.uncertainty_value = QLabel("Uncertainty: 0.0%")
         self.uncertainty_value.setObjectName("uncertaintyValue")
         self.uncertainty_bar = QProgressBar()
         self.uncertainty_bar.setRange(0, 1000)
@@ -438,18 +446,18 @@ class ResultsWindow(QWidget):
         self.uncertainty_bar.setTextVisible(False)
         self.uncertainty_bar.setObjectName("uncertaintyBar")
         self.uncertainty_bar.setFixedHeight(8)
+        self.confidence_bar.hide()
+        self.uncertainty_bar.hide()
         confidence_layout.addWidget(confidence_title)
         confidence_layout.addWidget(self.confidence_value)
-        confidence_layout.addWidget(self.confidence_bar)
         confidence_layout.addWidget(self.uncertainty_value)
-        confidence_layout.addWidget(self.uncertainty_bar)
 
         reco_card = QFrame()
         reco_card.setObjectName("resultStatCard")
         reco_layout = QVBoxLayout(reco_card)
         reco_layout.setContentsMargins(18, 18, 18, 18)
         reco_layout.setSpacing(8)
-        reco_title = QLabel("RECOMMENDATION")
+        reco_title = QLabel("AI RECOMMENDATION")
         reco_title.setObjectName("resultStatTitle")
         self.recommendation_value = QLabel("Consult eye care specialist")
         self.recommendation_value.setObjectName("resultStatValue")
@@ -460,6 +468,8 @@ class ResultsWindow(QWidget):
         reco_layout.addWidget(self.recommendation_value)
         reco_layout.addWidget(self.recommendation_badge, 0, Qt.AlignmentFlag.AlignLeft)
 
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(16)
         stats_row.addWidget(class_card, 1)
         stats_row.addWidget(confidence_card, 1)
         stats_row.addWidget(reco_card, 1)
@@ -509,11 +519,10 @@ class ResultsWindow(QWidget):
         brow.addLayout(second_col)
         bilateral_layout.addLayout(brow)
         self.bilateral_frame.hide()
-        layout.addWidget(self.bilateral_frame)
 
         self._apply_action_icons()
 
-        explanation_group = QGroupBox("Clinical Summary")
+        explanation_group = QGroupBox("AI Clinical Evaluation")
         explanation_group.setObjectName("resultGroupCard")
         explanation_layout = QVBoxLayout(explanation_group)
         explanation_layout.setContentsMargins(18, 18, 18, 18)
@@ -540,6 +549,8 @@ class ResultsWindow(QWidget):
         explanation_layout.addWidget(self.explanation)
 
         layout.addWidget(explanation_group)
+        layout.addWidget(decision_group)
+        layout.addWidget(self.bilateral_frame)
 
         self.footer_label = QLabel(
             "Grad-CAM++ \u2022 Automated DR Screening v2.1 \u2022 Results are decision-support tools, not a clinical diagnosis"
@@ -553,7 +564,7 @@ class ResultsWindow(QWidget):
             QWidget {
                 background: #ffffff;
                 color: #1f2937;
-                font-family: "DM Sans", "Segoe UI", "Inter", sans-serif;
+                font-family: "Segoe UI", "Inter", sans-serif;
                 font-size: 14px;
             }
             QScrollArea {
@@ -642,24 +653,24 @@ class ResultsWindow(QWidget):
             QLabel#resultStatTitle {
                 color: #6b7280;
                 font-size: 12px;
-                font-weight: 800;
+                font-weight: 600;
                 letter-spacing: 0.9px;
             }
             QLabel#classificationValue {
                 color: #2563eb;
                 font-size: 33px;
-                font-weight: 900;
+                font-weight: 700;
             }
             QLabel#resultStatValue {
                 color: #111827;
                 font-size: 18px;
-                font-weight: 800;
+                font-weight: 600;
             }
             QLabel#monoValue {
                 color: #1f2937;
                 font-family: "DM Mono", "Consolas", monospace;
                 font-size: 22px;
-                font-weight: 900;
+                font-weight: 700;
             }
             QProgressBar#confidenceBar {
                 border: none;
@@ -686,6 +697,19 @@ class ResultsWindow(QWidget):
                 font-size: 12px;
                 font-weight: 500;
             }
+            QTextEdit#overrideCommentBox,
+            QTextEdit#findingsCommentBox {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                padding: 10px;
+                font-size: 13px;
+                color: #1f2937;
+            }
+            QTextEdit#overrideCommentBox:focus,
+            QTextEdit#findingsCommentBox:focus {
+                border: 1px solid #60a5fa;
+            }
             QFrame#uncertaintyPanel {
                 background: #fffbeb;
                 border: 1px solid #fce7b6;
@@ -694,7 +718,7 @@ class ResultsWindow(QWidget):
             QLabel#uncertaintyValue {
                 color: #92400e;
                 font-size: 22px;
-                font-weight: 900;
+                font-weight: 700;
                 letter-spacing: 0.4px;
             }
             QLabel#okBadge {
@@ -950,8 +974,8 @@ class ResultsWindow(QWidget):
 
     def _accept_ai_classification(self):
         ai_value = str(self._current_result_class or "").strip()
-        if ai_value in ICDR_OPTIONS:
-            self.doctor_classification_combo.setCurrentText(ai_value)
+        if ai_value:
+            self.doctor_classification_input.setText(ai_value)
             self._doctor_classification = ai_value
             self._decision_mode = "accepted"
             self._override_justification = ""
@@ -965,28 +989,33 @@ class ResultsWindow(QWidget):
 
     def _on_doctor_classification_changed(self, value: str):
         chosen = str(value or "").strip()
-        if chosen in ICDR_OPTIONS:
-            self._doctor_classification = chosen
+        self._doctor_classification = chosen
         ai_value = str(self._current_result_class or "").strip()
         if self._doctor_classification == ai_value:
             if self._decision_mode == "override":
                 self._decision_mode = "accepted"
                 self.override_reason_input.clear()
                 self._override_justification = ""
-        else:
+        elif self._doctor_classification:
             self._decision_mode = "override"
         self._refresh_decision_ui_state()
 
-    def _on_override_reason_changed(self, text: str):
-        self._override_justification = str(text or "").strip()
+    def _on_override_reason_changed(self, text: str = ""):
+        if text:
+            self._override_justification = str(text).strip()
+        else:
+            self._override_justification = str(self.override_reason_input.toPlainText() or "").strip()
         self._refresh_decision_ui_state()
 
-    def _on_findings_changed(self, text: str):
-        self._doctor_findings = str(text or "").strip()
+    def _on_findings_changed(self, text: str = ""):
+        if text:
+            self._doctor_findings = str(text).strip()
+        else:
+            self._doctor_findings = str(self.findings_input.toPlainText() or "").strip()
 
     def _refresh_decision_ui_state(self):
         ai_value = str(self._current_result_class or "").strip()
-        requires_override = self._doctor_classification != ai_value and self._doctor_classification in ICDR_OPTIONS
+        requires_override = bool(self._doctor_classification and self._doctor_classification != ai_value)
         show_override = self._decision_mode == "override" or requires_override
         self.override_reason_label.setVisible(show_override)
         self.override_reason_input.setVisible(show_override)
@@ -1013,15 +1042,20 @@ class ResultsWindow(QWidget):
     def validate_decision_before_save(self) -> tuple[bool, str]:
         payload = self.get_decision_payload()
         doctor_value = str(payload.get("doctor_classification") or "").strip()
-        if doctor_value not in ICDR_OPTIONS:
-            return False, "Please choose the doctor classification (ICDR)."
+        if not doctor_value:
+            return False, "Please enter doctor classification."
+        findings = str(payload.get("doctor_findings") or "").strip()
         if payload.get("decision_mode") == "override":
             justification = str(payload.get("override_justification") or "").strip()
             if len(justification) < 8:
                 return False, "Override requires a brief clinical justification (at least 8 characters)."
-        findings = str(payload.get("doctor_findings") or "").strip()
-        if len(findings) < 12:
-            return False, "Please enter doctor findings/comment (at least 12 characters)."
+            if len(findings) < 8:
+                return False, "Please enter doctor findings/comment (at least 8 characters) for overrides."
+        elif not findings:
+            # Auto-fill a concise default note for accepted AI decisions to avoid hard save failures.
+            default_note = f"Clinician reviewed and accepted AI classification: {doctor_value}."
+            self._doctor_findings = default_note
+            self.findings_input.setText(default_note)
         return True, ""
 
     def set_results(self, patient_name, image_path, result_class="Pending", confidence_text="Pending", eye_label="", first_eye_result=None, heatmap_path="", patient_data=None, heatmap_pending=False):
@@ -1079,7 +1113,7 @@ class ResultsWindow(QWidget):
 
         confidence_pct = self._extract_percent_value(confidence_text)
         confidence_display = self._format_percent(confidence_pct)
-        self.confidence_value.setText(f"CONFIDENCE  {confidence_display}")
+        self.confidence_value.setText(f"Confidence: {confidence_display}")
         self.confidence_bar.setValue(int(round(confidence_pct * 10)))
 
         uncertainty_match = re.search(r"uncertainty\s*:?\s*(\d+(?:\.\d+)?)\s*%", str(confidence_text or ""), re.IGNORECASE)
@@ -1088,7 +1122,7 @@ class ResultsWindow(QWidget):
         else:
             uncertainty_pct = max(0.0, min(100.0, 100.0 - confidence_pct))
         self._uncertainty_pct = uncertainty_pct
-        self.uncertainty_value.setText(f"UNCERTAINTY  {self._format_percent(uncertainty_pct)}")
+        self.uncertainty_value.setText(f"Uncertainty: {self._format_percent(uncertainty_pct)}")
         self.uncertainty_bar.setValue(int(round(uncertainty_pct * 10)))
 
         # Grade-specific recommendation
@@ -1166,7 +1200,7 @@ class ResultsWindow(QWidget):
         self._current_eye_label    = eye_label
         self._current_patient_name = patient_name or ""
         if result_class in ICDR_OPTIONS:
-            self.doctor_classification_combo.setCurrentText(result_class)
+            self.doctor_classification_input.setText(result_class)
             self._doctor_classification = result_class
             self._decision_mode = "accepted"
             self._override_justification = ""
