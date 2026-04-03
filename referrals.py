@@ -709,7 +709,7 @@ class ReferralService:
             ReferralService.ensure_schema(conn)
             cur.execute(
                 """
-                SELECT notes, assigned_to_username, assigned_by_username, patient_name, episode_no
+                SELECT notes, assigned_to_username, assigned_by_username, patient_name, episode_no, status
                 FROM referral_assignments
                 WHERE referral_id = ?
                 ORDER BY episode_no DESC, id DESC
@@ -726,9 +726,13 @@ class ReferralService:
             assigned_by = str(row[2] or "").strip()
             patient_name = str(row[3] or "").strip()
             episode_no = int(row[4] or 1)
+            status = str(row[5] or "").strip().lower()
 
             # Clinical note exchange is constrained to clinicians directly involved in the referral handoff.
             if actor not in {assigned_to, assigned_by}:
+                conn.close()
+                return False
+            if status not in {"pending", "viewed", "in_review"}:
                 conn.close()
                 return False
 

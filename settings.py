@@ -407,25 +407,34 @@ class SettingsPage(QWidget):
             }
             QPushButton {
                 background: #ffffff;
-                color: #1f2937;
-                border: 1px solid #c7d8ec;
-                border-radius: 9px;
-                padding: 7px 12px;
+                border: 1px solid #bfdbfe;
+                color: #0f172a;
+                border-radius: 8px;
+                padding: 8px 14px;
+                font-size: 13px;
+                font-family: 'Segoe UI';
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: #eef4ff;
+                background: #eff6ff;
+                border: 1px solid #93c5fd;
             }
             QPushButton:focus {
-                border: 1px solid #3b82f6;
+                border: 1px solid #1f6fe5;
+            }
+            QPushButton:disabled {
+                background: #f8fafc;
+                border: 1px solid #dbeafe;
+                color: #9ca3af;
             }
             QPushButton#primaryAction {
-                background: #2563eb;
-                color: #ffffff;
-                border: 1px solid #1d4ed8;
+                background: #ffffff;
+                border: 1px solid #bfdbfe;
+                color: #0f172a;
             }
             QPushButton#primaryAction:hover {
-                background: #1d4ed8;
+                background: #eff6ff;
+                border: 1px solid #93c5fd;
             }
             QTableWidget {
                 background: #ffffff;
@@ -921,7 +930,13 @@ class SettingsPage(QWidget):
         about_layout.setSpacing(4)
         self.about_version_label = QLabel("EyeShield EMR v1.0.0")
         self.about_copyright_label = QLabel("© 2026 EyeShield Team")
-        self.about_contact_label = QLabel("For support, contact: support@eyeshield.local")
+        self.about_contact_label = QLabel(
+            "EyeShield EMR is an offline clinical screening system for diabetic retinopathy. "
+            "It supports patient intake, AI-assisted image analysis, report generation, and "
+            "internal referral coordination. AI output is decision support only and must be "
+            "reviewed by a qualified clinician before final diagnosis and treatment planning."
+        )
+        self.about_contact_label.setWordWrap(True)
         for lbl in (self.about_version_label, self.about_copyright_label, self.about_contact_label):
             lbl.setObjectName("metaLabel")
         about_layout.addWidget(self.about_version_label)
@@ -937,11 +952,12 @@ class SettingsPage(QWidget):
         self.terms_group = terms_group
         terms_layout = QVBoxLayout(terms_group)
         self.terms_label = QLabel(
-            "By using EyeShield EMR you agree to use the software solely for its "
-            "intended medical-records purpose. Unauthorised reproduction, distribution, "
-            "or reverse engineering is prohibited. The software is provided 'as is' "
-            "without warranty of any kind. The EyeShield Team is not liable for any "
-            "loss arising from the use or inability to use this software."
+            "By using EyeShield EMR, you agree to use the system only for authorized clinical "
+            "screening, documentation, and referral workflows. Users must follow role-based "
+            "permissions, maintain accurate records, and avoid unauthorized copying, sharing, "
+            "or modification of patient data. Internal referral notes and status updates must "
+            "be used for continuity of care. The software is provided as a clinical support "
+            "tool and does not replace professional medical judgment."
         )
         self.terms_label.setWordWrap(True)
         self.terms_label.setStyleSheet("color:#495057; font-size:12px; line-height:1.5;")
@@ -953,11 +969,12 @@ class SettingsPage(QWidget):
         self.privacy_group = privacy_group
         privacy_layout = QVBoxLayout(privacy_group)
         self.privacy_label = QLabel(
-            "EyeShield EMR stores all patient and user data locally on this device. "
-            "No personal information is transmitted to external servers. You are "
-            "responsible for securing access to this device and its data. Regular "
-            "backups are recommended. For data-deletion requests or privacy concerns, "
-            "please contact your system administrator."
+            "EyeShield EMR stores patient and user data locally on this device/database and "
+            "does not require internet transfer for core operation. Access must be restricted "
+            "to authorized users, with workstation lock/logout on shared devices. Exports and "
+            "printed reports should be handled only through approved clinical channels and "
+            "according to retention policy. Administrators are responsible for backup, access "
+            "control, and secure lifecycle management of local records."
         )
         self.privacy_label.setWordWrap(True)
         self.privacy_label.setStyleSheet("color:#495057; font-size:12px; line-height:1.5;")
@@ -1221,6 +1238,9 @@ class SettingsPage(QWidget):
             "about": p["settings_about"],
             "terms": p["settings_terms"],
             "privacy": p["settings_privacy"],
+            "about_text": p.get("settings_about_text", ""),
+            "terms_text": p.get("settings_terms_text", ""),
+            "privacy_text": p.get("settings_privacy_text", ""),
             "reset": p["settings_reset"],
             "save": p["settings_save"],
         }
@@ -1247,6 +1267,12 @@ class SettingsPage(QWidget):
         self.about_group.setTitle(pack["about"])
         self.terms_group.setTitle(pack["terms"])
         self.privacy_group.setTitle(pack["privacy"])
+        if pack["about_text"]:
+            self.about_contact_label.setText(pack["about_text"])
+        if pack["terms_text"]:
+            self.terms_label.setText(pack["terms_text"])
+        if pack["privacy_text"]:
+            self.privacy_label.setText(pack["privacy_text"])
         self.reset_btn.setText(pack["reset"])
         self.save_btn.setText(pack["save"])
 

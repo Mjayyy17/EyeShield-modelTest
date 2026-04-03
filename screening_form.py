@@ -2039,6 +2039,18 @@ class ScreeningPage(QWidget):
         if self._guard_busy_action("opening camera capture"):
             return
 
+        existing_image = str(getattr(self, "current_image", "") or "").strip()
+        if existing_image:
+            proceed = QMessageBox.question(
+                self,
+                "Image Already Uploaded",
+                "An image is already uploaded for this screening. Open Camera anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if proceed != QMessageBox.StandardButton.Yes:
+                return
+
         patient_id = self.p_id.text().strip()
         if not patient_id:
             patient_id = self.generate_patient_id()

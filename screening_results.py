@@ -332,7 +332,7 @@ class ResultsWindow(QWidget):
         actions_head.addStretch(1)
         actions_layout.addLayout(actions_head)
 
-        actions_hint = QLabel("Organized workflow shortcuts for save, referral, reports, and navigation.")
+        actions_hint = QLabel("Workflow shortcuts for save, handoff, reports, and navigation.")
         actions_hint.setObjectName("metaText")
         actions_hint.setWordWrap(True)
         actions_layout.addWidget(actions_hint)
@@ -1483,6 +1483,20 @@ class ResultsWindow(QWidget):
                 write_activity("INFO", "DIALOG_NEW_PATIENT", "Cancel")
                 return
             write_activity("WARNING", "DIALOG_NEW_PATIENT", "Discard and Continue")
+
+        has_visible_result = bool(str(getattr(self, "_current_image_path", "") or "").strip())
+        if has_visible_result:
+            confirm_clear = QMessageBox.question(
+                self,
+                "Clear Current Results",
+                "Starting a new patient will clear the current results area. Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirm_clear != QMessageBox.StandardButton.Yes:
+                write_activity("INFO", "DIALOG_NEW_PATIENT", "Cancel Clear Results")
+                return
+
         if hasattr(page, "reset_screening"):
             page.reset_screening()
 
@@ -1597,6 +1611,7 @@ class ResultsWindow(QWidget):
 
         # Collect symptoms for pill display
         symptoms = []
+        symptom_other_val = ""
         if pp:
             if hasattr(pp, "symptom_blurred") and pp.symptom_blurred.isChecked():
                 symptoms.append("Blurred Vision")
@@ -1742,6 +1757,7 @@ class ResultsWindow(QWidget):
             if symptoms
             else '<span style="color:#6b7280;">None reported</span>'
         )
+        other_symptom_disp = esc_or_dash(symptom_other_val)
 
         def resolve_image_path(path_value: str) -> str:
             raw = str(path_value or "").strip()
@@ -1995,6 +2011,11 @@ img {{
     <div style="font-size:9pt;color:#374151;">{symptom_html}</div>
 </div>
 
+{sec("Other Symptom Details")}
+<div style="padding:12px;border:1px solid #d1d5db;background:#fafafa;margin-bottom:18px;min-height:44px;">
+    <div style="font-size:9pt;color:#4b5563;line-height:1.65;">{other_symptom_disp}</div>
+</div>
+
 <!-- AI Classification Result -->
 {sec("AI Classification Result")}
 <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
@@ -2009,6 +2030,11 @@ img {{
 {field_row("Doctor Findings", esc(findings_note or "—"))}
 {field_row("Final Diagnosis", esc("Based on ICDR Severity Scale"), False)}
 </table>
+
+{sec("Doctor Comments")}
+<div style="padding:12px;border:1px solid #d1d5db;background:#fafafa;margin-bottom:18px;min-height:44px;">
+    <div style="font-size:9pt;color:#4b5563;line-height:1.65;">{esc(findings_note) if findings_note else "&mdash;"}</div>
+</div>
 
 <div style="padding:10px 12px;border:1px solid #d1d5db;margin-bottom:18px;background:#fafafa;">
     <div style="font-size:8.5pt;color:#374151;">
@@ -2173,13 +2199,13 @@ img {{
                 pass
 
     def _show_referral_options(self):
-        """Show dialog to choose between internal referral or generating letter"""
+        """Show dialog to choose between internal clinical handoff or generating referral letter."""
         if self._current_result_class in ("Pending", "Analyzing…") or not self._current_image_path:
-            QMessageBox.information(self, "Referral", "No completed screening results to refer.")
+            QMessageBox.information(self, "Referral", "No completed screening result available for handoff.")
             return
 
         if self.parent_page and not getattr(self.parent_page, "_current_eye_saved", False):
-            QMessageBox.warning(self, "Referral", "Please save the result before generating a referral")
+            QMessageBox.warning(self, "Referral", "Please save the result before creating a handoff.")
             return
 
         try:
@@ -2197,9 +2223,9 @@ img {{
                 self.generate_referral()
 
     def _show_internal_referral(self):
-        """Show dialog to assign referral to a clinician internally"""
+        """Show dialog to assign an internal clinical handoff."""
         if not self._current_patient_name:
-            QMessageBox.warning(self, "Error", "Patient name not available")
+            QMessageBox.warning(self, "Clinical Handoff", "Patient name is not available.")
             return
 
         try:
@@ -2210,7 +2236,7 @@ img {{
         patient_name_raw = str(self._current_patient_name or "Patient").strip()
         username = self._resolve_actor_username()
         if not username:
-            QMessageBox.warning(self, "Referral", "Current logged-in user could not be resolved. Please sign in again.")
+            QMessageBox.warning(self, "Clinical Handoff", "Current logged-in user could not be resolved. Please sign in again.")
             return
         
         while True:
@@ -2221,20 +2247,28 @@ img {{
                 return
 
             if dialog.selected_clinician == username:
-                QMessageBox.warning(self, "Referral", "You cannot assign a referral to yourself.")
+                QMessageBox.warning(self, "Clinical Handoff", "You cannot assign a handoff to yourself.")
                 continue
 
             duplicate = UserManager.find_active_duplicate_referral(patient_name_raw, dialog.selected_clinician)
             if duplicate:
-                status_label = str(duplicate.get("status") or "pending").replace("_", " ").title()
+                status_map = {
+                    "pending": "Pending",
+                    "viewed": "Viewed",
+                    "in_review": "In Review",
+                    "completed": "Completed",
+                    "archived": "Archived",
+                }
+                status_raw = str(duplicate.get("status") or "pending").strip().lower()
+                status_label = status_map.get(status_raw, status_raw.replace("_", " ").title())
                 existing_referral_id = str(duplicate.get("referral_id") or "").strip()
                 confirm = QMessageBox.question(
                     self,
-                    "Duplicate Referral",
+                    "Duplicate Handoff",
                     (
-                        f"{patient_name_raw} is already referred to this doctor "
+                        f"{patient_name_raw} already has an active handoff to this clinician "
                         f"(Referral ID: {existing_referral_id}, Status: {status_label}).\n\n"
-                        "Do you want to create another referral anyway?"
+                        "Create another handoff anyway?"
                     ),
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No,
@@ -2244,24 +2278,27 @@ img {{
 
             # Create referral assignment
             referral_id = f"REF-{datetime.now().strftime('%Y%m%d%H%M%S')}-INTERNAL"
+            base_note = "Assigned from screening results"
+            extra_note = str(getattr(dialog, "notes_text", "") or "").strip()
+            notes_value = f"{base_note}\nAdditional comments: {extra_note}" if extra_note else base_note
             success = UserManager.assign_referral(
                 referral_id=referral_id,
                 assigned_to_username=dialog.selected_clinician,
                 assigned_by_username=username,
                 patient_name=patient_name_raw,
                 urgency=dialog.urgency_level,
-                notes=f"Assigned from screening results"
+                notes=notes_value,
             )
             if success:
                 QMessageBox.information(
                     self,
-                    "Referral Assigned",
-                    "Patient referral assigned successfully to clinician."
+                    "Clinical Handoff Assigned",
+                    "Patient handoff assigned successfully to clinician."
                 )
                 write_activity("INFO", "INTERNAL_REFERRAL_ASSIGNED", f"patient={patient_name_raw}")
                 return
 
-            QMessageBox.warning(self, "Error", "Failed to assign referral. It may already be assigned.")
+            QMessageBox.warning(self, "Clinical Handoff", "Failed to assign handoff. It may already be assigned.")
 
     def generate_referral(self):
         """Generate a referral letter PDF from screening results."""

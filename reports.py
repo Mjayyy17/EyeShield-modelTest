@@ -22,6 +22,11 @@ from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter
 from auth import DB_FILE, UserManager
 
 
+def _is_truthy_flag(value) -> bool:
+    """Normalize legacy/new boolean-like values stored in SQLite text fields."""
+    return str(value or "").strip().lower() in {"true", "1", "yes", "checked", "y"}
+
+
 class PatientDetailsDialog(QDialog):
     """Read-only dialog displaying full patient screening details without fundus image."""
 
@@ -98,13 +103,13 @@ class PatientDetailsDialog(QDialog):
         # Symptoms Section
         add_section("Symptoms")
         symptoms = []
-        if patient_record.get("symptom_blurred_vision") == "True":
+        if _is_truthy_flag(patient_record.get("symptom_blurred_vision")):
             symptoms.append("Blurred vision")
-        if patient_record.get("symptom_floaters") == "True":
+        if _is_truthy_flag(patient_record.get("symptom_floaters")):
             symptoms.append("Floaters")
-        if patient_record.get("symptom_flashes") == "True":
+        if _is_truthy_flag(patient_record.get("symptom_flashes")):
             symptoms.append("Flashes")
-        if patient_record.get("symptom_vision_loss") == "True":
+        if _is_truthy_flag(patient_record.get("symptom_vision_loss")):
             symptoms.append("Vision loss")
         symptom_text = ", ".join(symptoms) if symptoms else "None reported"
         add_field("Reported Symptoms", symptom_text)
@@ -117,7 +122,7 @@ class PatientDetailsDialog(QDialog):
         add_field("HbA1c", str(patient_record.get("hba1c") or "N/A") + ("%" if patient_record.get("hba1c") else ""))
         add_field("Treatment Regimen", str(patient_record.get("treatment_regimen") or "N/A"))
         add_field("Previous DR Stage", str(patient_record.get("prev_dr_stage") or "N/A"))
-        prev_treatment = "Yes" if patient_record.get("prev_treatment") == "True" else "No"
+        prev_treatment = "Yes" if _is_truthy_flag(patient_record.get("prev_treatment")) else "No"
         add_field("Previous DR Treatment", prev_treatment)
         
         # Screening Result Section
@@ -245,7 +250,24 @@ class ReferralDetailDialog(QDialog):
         if notes_raw:
             notes_lines = [line.strip() for line in notes_raw.splitlines() if line.strip()]
             message_lines = [line for line in notes_lines if line.lower().startswith("message on this patient")]
-            status_lines = [line for line in notes_lines if line not in message_lines]
+            comment_lines = [
+                line for line in notes_lines if line.lower().startswith("additional comments:")
+            ]
+            status_lines = [
+                line for line in notes_lines if line not in message_lines and line not in comment_lines
+            ]
+
+            if comment_lines:
+                add_section("Additional Comments")
+                cleaned_comments = [
+                    line.split(":", 1)[1].strip() if ":" in line else line for line in comment_lines
+                ]
+                comments_label = QLabel("\n".join(cleaned_comments))
+                comments_label.setWordWrap(True)
+                comments_label.setStyleSheet(
+                    "color:#1f2937;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:10px;"
+                )
+                left_layout.addWidget(comments_label)
 
             if message_lines:
                 add_section("Message History")
@@ -1109,13 +1131,16 @@ class ReportsPage(QWidget):
                     continue
 
             referral_id = f"REF-{datetime.now().strftime('%Y%m%d%H%M%S')}-INTERNAL-{full.get('id', 'NA')}"
+            base_note = f"Assigned from Reports for record ID: {full.get('id', 'N/A')}"
+            extra_note = str(getattr(dialog, "notes_text", "") or "").strip()
+            notes_value = f"{base_note}\nAdditional comments: {extra_note}" if extra_note else base_note
             success = UserManager.assign_referral(
                 referral_id=referral_id,
                 assigned_to_username=dialog.selected_clinician,
                 assigned_by_username=self.username,
                 patient_name=patient_name_raw,
                 urgency=dialog.urgency_level,
-                notes=f"Assigned from Reports for record ID: {full.get('id', 'N/A')}",
+                notes=notes_value,
             )
             if success:
                 QMessageBox.information(self, "Referral Assigned", "Patient referral assigned successfully to clinician.")
@@ -1762,7 +1787,25 @@ class ReportsPage(QWidget):
         dur_disp = f"{escape(dur_raw)} year(s)" if dur_raw and dur_raw != "0" else "&#8212;"
 
         notes_raw  = str(full.get("notes") or "").strip()
-        notes_disp = escape(notes_raw) if notes_raw else '<span style="color:#9ca3af;font-style:italic;">None recorded</span>'
+        other_symptom_lines = []
+        note_lines = []
+        for raw_line in notes_raw.splitlines():
+            line = str(raw_line or "").strip()
+            if not line:
+                continue
+            if line.lower().startswith("other symptom:"):
+                value = line.split(":", 1)[1].strip() if ":" in line else ""
+                if value:
+                    other_symptom_lines.append(value)
+                continue
+            note_lines.append(line)
+        notes_clean = "\n".join(note_lines).strip()
+        notes_disp = escape(notes_clean) if notes_clean else '<span style="color:#9ca3af;font-style:italic;">None recorded</span>'
+        other_symptom_disp = (
+            "<br>".join(escape(item) for item in other_symptom_lines)
+            if other_symptom_lines
+            else '<span style="color:#9ca3af;font-style:italic;">None recorded</span>'
+        )
 
         bp_s    = str(full.get("blood_pressure_systolic") or full.get("bp_systolic") or "").strip()
         bp_d    = str(full.get("blood_pressure_diastolic") or full.get("bp_diastolic") or "").strip()
@@ -1814,7 +1857,7 @@ class ReportsPage(QWidget):
             ("symptom_flashes", "Flashes"),
             ("symptom_vision_loss", "Vision Loss"),
         ]
-        active_syms = [lbl for k, lbl in sym_map if str(full.get(k) or "").strip().lower() in ("true", "1", "yes", "checked")]
+        active_syms = [lbl for k, lbl in sym_map if _is_truthy_flag(full.get(k))]
         sym_html = (
             " ".join(
                 f'<span style="display:inline-block;background:#f3f4f6;color:#374151;'
@@ -2031,6 +2074,11 @@ class ReportsPage(QWidget):
     <div style="font-size:9pt;color:#374151;">{sym_html}</div>
   </div>
 
+    {sec("Other Symptom Details")}
+    <div style="padding:12px;border:1px solid #d1d5db;background:#fafafa;margin-bottom:18px;min-height:44px;">
+        <div style="font-size:9pt;color:#4b5563;line-height:1.65;">{other_symptom_disp}</div>
+    </div>
+
   {sec("AI Classification Result")}
   <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d1d5db;margin-bottom:18px;">
   {field_row("Classification", ai_result_label)}
@@ -2045,6 +2093,11 @@ class ReportsPage(QWidget):
   {field_row("Final Diagnosis", final_dx_label)}
   {field_row("Final Diagnosis Scale", "Based on ICDR Severity Scale", False)}
   </table>
+
+    {sec("Doctor Comments")}
+    <div style="padding:12px;border:1px solid #d1d5db;background:#fafafa;margin-bottom:18px;min-height:44px;">
+        <div style="font-size:9pt;color:#4b5563;line-height:1.65;">{esc(doctor_findings_raw) if doctor_findings_raw else '<span style="color:#9ca3af;font-style:italic;">No doctor comments provided</span>'}</div>
+    </div>
 """
         if decision_mode_raw == "override":
             html += f"""

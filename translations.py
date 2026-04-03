@@ -14,6 +14,28 @@ TRANSLATIONS = {
         "settings_about": "About",
         "settings_terms": "Terms of Use",
         "settings_privacy": "Privacy Policy",
+        "settings_about_text": (
+            "EyeShield EMR is an offline clinical screening system for diabetic retinopathy. "
+            "It supports patient intake, AI-assisted image analysis, report generation, and "
+            "internal referral coordination. AI output is decision support only and must be "
+            "reviewed by a qualified clinician before final diagnosis and treatment planning."
+        ),
+        "settings_terms_text": (
+            "By using EyeShield EMR, you agree to use the system only for authorized clinical "
+            "screening, documentation, and referral workflows. Users must follow role-based "
+            "permissions, maintain accurate records, and avoid unauthorized copying, sharing, "
+            "or modification of patient data. Internal referral notes and status updates must "
+            "be used for continuity of care. The software is provided as a clinical support "
+            "tool and does not replace professional medical judgment."
+        ),
+        "settings_privacy_text": (
+            "EyeShield EMR stores patient and user data locally on this device/database and "
+            "does not require internet transfer for core operation. Access must be restricted "
+            "to authorized users, with workstation lock/logout on shared devices. Exports and "
+            "printed reports should be handled only through approved clinical channels and "
+            "according to retention policy. Administrators are responsible for backup, access "
+            "control, and secure lifecycle management of local records."
+        ),
         "settings_reset": "Reset Defaults",
         "settings_save": "Save Settings",
         # Nav labels
@@ -99,9 +121,11 @@ TRANSLATIONS = {
                 <li>Log in with your assigned role and open <b>Screening</b>.</li>
                 <li>Complete all required patient fields, then upload one fundus image (JPG/PNG/JPEG).</li>
                 <li>Click <b>Analyze Image</b>, review the AI result, confidence, and recommendations.</li>
-                <li><b>Save</b> the eye result before generating a PDF report or starting a new patient.</li>
+                <li><b>Save</b> the eye result; the results window stays open so you can review, export PDF, and continue safely.</li>
                 <li>For bilateral workflow, screen and save one eye first, then use <b>Screen Other Eye</b>.</li>
+                <li>Use <b>Refer Patient</b> for Moderate, Severe, or Proliferative DR when specialist follow-up is needed.</li>
                 <li>Use <b>Reports</b> for filtering, exports, and archived-record management.</li>
+                <li>Use <b>Referrals</b> to track pending, in-review, completed, reassigned, and archived referral cases.</li>
             </ul>
             """,
         "hlp_howto": "How-to Guides",
@@ -111,6 +135,10 @@ TRANSLATIONS = {
                 <li><b>Image quality:</b> If image is marked not gradable, capture a clearer, well-lit fundus image and retry.</li>
                 <li><b>Duplicate eye record:</b> If the same patient eye already exists, choose <b>Replace Existing</b> or <b>Save as New Session</b>.</li>
                 <li><b>Generate PDF report:</b> Save first; if only one eye is screened, you can generate single-eye report or screen the other eye first.</li>
+                <li><b>Clinical decision fields:</b> Doctor classification, decision mode, findings, and override justification are included in final records and PDF.</li>
+                <li><b>Refer patient:</b> Open referral from screening results, select a receiving facility, and include referral notes.</li>
+                <li><b>Referral lifecycle:</b> Update status from pending to viewed/in-review/completed, or use reassigned/rereferred when routing changes.</li>
+                <li><b>Trusted hospitals:</b> Maintain referral facilities by adding hospital name, department, and optional contact details.</li>
                 <li><b>Reports page:</b> Search, filter, refresh, export, and archive selected records.</li>
                 <li><b>Archived records:</b> Restore archived items when needed, or permanently delete only if allowed by policy.</li>
             </ul>
@@ -123,6 +151,8 @@ TRANSLATIONS = {
                 <li><b>Why can I not generate a report?</b> You must complete analysis and save the current eye result first.</li>
                 <li><b>Why did my confidence/result not appear?</b> The model may still be analyzing, or the image failed quality checks.</li>
                 <li><b>Cannot find a patient in Reports:</b> Use search/filter, refresh records, and verify if the record was archived.</li>
+                <li><b>Why can I not submit a referral?</b> Ensure the result is saved, a target facility is selected, and required referral fields are complete.</li>
+                <li><b>Which statuses should I use in Referrals?</b> Use viewed/in-review during active management, completed when closed, and archived for inactive items.</li>
                 <li><b>Can unsaved work be recovered?</b> Draft autosave is used for in-progress screening, but you should still save explicitly.</li>
             </ul>
             """,
@@ -134,6 +164,8 @@ TRANSLATIONS = {
                 <li><b>Unsaved result dialogs:</b> Choose <b>Save First</b> before starting a new patient, going back, or closing the app.</li>
                 <li><b>Save failed:</b> Retry save, or select a different save location when prompted.</li>
                 <li><b>Export issues:</b> Retry from Reports and verify destination folder permissions and available disk space.</li>
+                <li><b>Referral not visible:</b> Refresh Referrals, confirm current status filters, and verify the referral was successfully submitted.</li>
+                <li><b>Facility list missing:</b> Add or update entries in trusted hospitals before creating a new referral.</li>
                 <li><b>Camera page:</b> Temporary webcam utility only; use screening upload for final DR analysis workflow.</li>
             </ul>
             """,

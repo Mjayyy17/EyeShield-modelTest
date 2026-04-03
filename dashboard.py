@@ -1610,20 +1610,8 @@ class EyeShieldApp(QMainWindow):
         severity_v.setContentsMargins(18, 10, 18, 16)
         severity_v.setSpacing(8)
 
-        self._dash_severity_title_lbl = QLabel("SCREENED PATIENTS")
-        self._dash_severity_title_lbl.setStyleSheet(
-            "color: #6c757d; font-size: 10px; font-weight: 700;"
-            "letter-spacing: 0.9px; text-transform: uppercase; background: transparent;"
-        )
-        severity_v.addWidget(self._dash_severity_title_lbl)
-
-        self._dash_severity_hint_lbl = QLabel("Distribution by diagnosed severity")
-        self._dash_severity_hint_lbl.setStyleSheet(
-            "color: #7b8794; font-size: 12px; font-weight: 500; background: transparent;"
-        )
-        severity_v.addWidget(self._dash_severity_hint_lbl)
-
         scale_row = QWidget()
+        scale_row.setStyleSheet("background: transparent;")
         scale_row_layout = QHBoxLayout(scale_row)
         scale_row_layout.setContentsMargins(0, 0, 0, 0)
         scale_row_layout.setSpacing(8)
@@ -1662,6 +1650,7 @@ class EyeShieldApp(QMainWindow):
             row = QWidget()
             row.setMinimumHeight(40)
             row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            row.setStyleSheet("background: transparent;")
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(6)
@@ -1757,6 +1746,7 @@ class EyeShieldApp(QMainWindow):
         page = QWidget()
         page.setObjectName("referralsPage")
         page.setStyleSheet("QWidget#referralsPage { background: #f8f9fa; }")
+        referral_icon_color = "#2563eb"
 
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -1766,28 +1756,12 @@ class EyeShieldApp(QMainWindow):
         title.setStyleSheet("color: #2b3a4a; font-size: 22px; font-weight: 800; background: transparent;")
         layout.addWidget(title)
 
-        subtitle = QLabel("Private referral activity for your account only.")
-        subtitle.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 600; background: transparent;")
-        layout.addWidget(subtitle)
-
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
         actions_row.addStretch(1)
+        icons_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 
-        self.referral_archive_btn = QPushButton("Archive Referral")
-        self.referral_archive_btn.setCursor(Qt.PointingHandCursor)
-        self.referral_archive_btn.setMinimumHeight(32)
-        self.referral_archive_btn.setStyleSheet(
-            "QPushButton {"
-            "background: #ffffff; color: #1a1a1a; border: 1px solid #bfdbfe;"
-            "border-radius: 8px; padding: 6px 14px; font-weight: 600;"
-            "}"
-            "QPushButton:hover { background: #eff6ff; border-color: #93c5fd; }"
-        )
-        self.referral_archive_btn.clicked.connect(self._archive_selected_referral_from_dashboard)
-        actions_row.addWidget(self.referral_archive_btn)
-
-        self.referral_messages_btn = QPushButton("Messages")
+        self.referral_messages_btn = QPushButton("Add Message")
         self.referral_messages_btn.setCursor(Qt.PointingHandCursor)
         self.referral_messages_btn.setMinimumHeight(32)
         self.referral_messages_btn.setStyleSheet(
@@ -1796,6 +1770,12 @@ class EyeShieldApp(QMainWindow):
             "border-radius: 8px; padding: 6px 14px; font-weight: 600;"
             "}"
             "QPushButton:hover { background: #eff6ff; border-color: #93c5fd; }"
+        )
+        self._set_button_svg_icon(
+            self.referral_messages_btn,
+            self._resolve_existing_path(os.path.join(icons_dir, "add_comment.svg")),
+            referral_icon_color,
+            QSize(16, 16),
         )
         self.referral_messages_btn.clicked.connect(self._send_message_for_selected_referral)
         actions_row.addWidget(self.referral_messages_btn)
@@ -1810,10 +1790,16 @@ class EyeShieldApp(QMainWindow):
             "}"
             "QPushButton:hover { background: #eff6ff; border-color: #93c5fd; }"
         )
+        self._set_button_svg_icon(
+            self.referral_inbox_btn,
+            self._resolve_existing_path(os.path.join(icons_dir, "inbox.svg")),
+            referral_icon_color,
+            QSize(16, 16),
+        )
         self.referral_inbox_btn.clicked.connect(self._open_referral_inbox_dialog)
         actions_row.addWidget(self.referral_inbox_btn)
 
-        self.referral_archives_btn = QPushButton("Archives")
+        self.referral_archives_btn = QPushButton("Archived")
         self.referral_archives_btn.setCursor(Qt.PointingHandCursor)
         self.referral_archives_btn.setMinimumHeight(32)
         self.referral_archives_btn.setStyleSheet(
@@ -1822,6 +1808,12 @@ class EyeShieldApp(QMainWindow):
             "border-radius: 8px; padding: 6px 14px; font-weight: 600;"
             "}"
             "QPushButton:hover { background: #eff6ff; border-color: #93c5fd; }"
+        )
+        self._set_button_svg_icon(
+            self.referral_archives_btn,
+            self._resolve_existing_path(os.path.join(icons_dir, "archives.svg")),
+            referral_icon_color,
+            QSize(16, 16),
         )
         self.referral_archives_btn.clicked.connect(self._open_referral_archives_dialog)
         actions_row.addWidget(self.referral_archives_btn)
@@ -1833,7 +1825,7 @@ class EyeShieldApp(QMainWindow):
         def build_referral_table() -> QTableWidget:
             table = QTableWidget(0, 6)
             table.setHorizontalHeaderLabels(
-                ["Patient", "Status", "Urgency", "Referred By", "Assigned To", "Date of Referral"]
+                ["Patient", "Status", "Priority", "Referring Clinician", "Receiving Clinician", "Assigned At"]
             )
             table.setAlternatingRowColors(True)
             table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -1885,7 +1877,7 @@ class EyeShieldApp(QMainWindow):
         assigned_feed_v.setContentsMargins(14, 12, 14, 12)
         assigned_feed_v.setSpacing(8)
         assigned_feed_title = QLabel("ASSIGNED TO ME")
-        assigned_feed_title.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; background: transparent;")
+        assigned_feed_title.setStyleSheet("color: #475569; font-size: 13px; font-weight: 700; background: transparent;")
         assigned_feed_v.addWidget(assigned_feed_title)
         self.referrals_assigned_table = build_referral_table()
         self.referrals_assigned_table.itemDoubleClicked.connect(
@@ -1908,7 +1900,7 @@ class EyeShieldApp(QMainWindow):
         created_feed_v.setContentsMargins(14, 12, 14, 12)
         created_feed_v.setSpacing(8)
         created_feed_title = QLabel("CREATED BY ME")
-        created_feed_title.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; background: transparent;")
+        created_feed_title.setStyleSheet("color: #475569; font-size: 13px; font-weight: 700; background: transparent;")
         created_feed_v.addWidget(created_feed_title)
         self.referrals_created_table = build_referral_table()
         self.referrals_created_table.itemDoubleClicked.connect(
@@ -1934,7 +1926,12 @@ class EyeShieldApp(QMainWindow):
             self.referral_inbox_btn.setText(f"Inbox ({unread_count})" if unread_count else "Inbox")
 
         referrals = UserManager.get_user_referrals(self.username, limit=200)
-        assigned_referrals = [item for item in referrals if item.get("relation") == "assigned_to_me"]
+        assigned_referrals = [
+            item
+            for item in referrals
+            if item.get("relation") == "assigned_to_me"
+            and str(item.get("status") or "").strip().lower() != "archived"
+        ]
         created_referrals = [
             item
             for item in referrals
@@ -1947,7 +1944,7 @@ class EyeShieldApp(QMainWindow):
         ]
         if hasattr(self, "referral_archives_btn"):
             archived_count = len(self._archived_created_referrals)
-            self.referral_archives_btn.setText(f"Archives ({archived_count})" if archived_count else "Archives")
+            self.referral_archives_btn.setText(f"Archived ({archived_count})" if archived_count else "Archived")
 
         def populate_table(table: QTableWidget, rows: list[dict], empty_message: str):
             table.clearContents()
@@ -1969,7 +1966,14 @@ class EyeShieldApp(QMainWindow):
                 patient_name = str(referral.get("patient_name") or "Unknown Patient").strip() or "Unknown Patient"
                 urgency = str(referral.get("urgency") or "normal").capitalize()
                 status_raw = str(referral.get("status") or "pending").strip()
-                status = status_raw.replace("_", " ").title()
+                status_display = {
+                    "pending": "Pending",
+                    "viewed": "Viewed",
+                    "in_review": "In Review",
+                    "completed": "Completed",
+                    "archived": "Archived",
+                }
+                status = status_display.get(status_raw.lower(), status_raw.replace("_", " ").title())
                 assigned_at = str(referral.get("assigned_at") or "").strip()
                 assigned_at_display = EyeShieldApp._format_referral_datetime(assigned_at)
                 assigned_by = str(referral.get("assigned_by") or "").strip()
@@ -2026,12 +2030,15 @@ class EyeShieldApp(QMainWindow):
         archive_action = None
         delete_archived_action = None
 
+        allowed_message_statuses = {"pending", "viewed", "in_review"}
+
         if relation == "assigned_to_me" and referral_id:
             menu.addSeparator()
             viewed_action = menu.addAction("Mark as Viewed")
-            review_action = menu.addAction("Start Review")
+            review_action = menu.addAction("Start Clinical Review")
             complete_action = menu.addAction("Complete Referral")
-            message_action = menu.addAction("Send Message")
+            if status in allowed_message_statuses:
+                message_action = menu.addAction("Send Message")
             menu.addSeparator()
             reassign_action = menu.addAction("Reassign Referral")
         elif relation == "created_by_me" and referral_id:
@@ -2056,6 +2063,13 @@ class EyeShieldApp(QMainWindow):
             self._apply_referral_status(referral, "completed", require_note=True)
             return
         if chosen == message_action:
+            if status not in allowed_message_statuses:
+                QMessageBox.information(
+                    self,
+                    "Referral",
+                    "Messages are only available for Pending, Viewed, or In Review referrals.",
+                )
+                return
             note, ok = QInputDialog.getMultiLineText(
                 self,
                 "Send Message",
@@ -2184,7 +2198,7 @@ class EyeShieldApp(QMainWindow):
         selected, ok = QInputDialog.getItem(
             self,
             "Reassign Referral",
-            f"Select clinician for {patient_name}:",
+            f"Select receiving clinician for {patient_name}:",
             options,
             0,
             False,
@@ -2338,7 +2352,7 @@ class EyeShieldApp(QMainWindow):
         urgency_label, ok = QInputDialog.getItem(
             self,
             "Edit Referral",
-            "Urgency:",
+            "Priority:",
             ["Normal", "Urgent", "Critical"],
             default_index,
             False,
@@ -2425,6 +2439,15 @@ class EyeShieldApp(QMainWindow):
         referral = self._selected_referral_from_tables()
         if not referral:
             QMessageBox.information(self, "Referral", "Select a referral first.")
+            return
+
+        status = str(referral.get("status") or "").strip().lower()
+        if status not in {"pending", "viewed", "in_review"}:
+            QMessageBox.information(
+                self,
+                "Referral",
+                "Messages are only available for Pending, Viewed, or In Review referrals.",
+            )
             return
 
         referral_id = str(referral.get("referral_id") or "").strip()
@@ -2533,7 +2556,7 @@ class EyeShieldApp(QMainWindow):
         layout.addWidget(title)
 
         table = QTableWidget(0, 6)
-        table.setHorizontalHeaderLabels(["Patient", "Status", "Urgency", "Referred By", "Assigned To", "Date of Referral"])
+        table.setHorizontalHeaderLabels(["Patient", "Status", "Priority", "Referring Clinician", "Receiving Clinician", "Assigned At"])
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -2606,7 +2629,7 @@ class EyeShieldApp(QMainWindow):
     def _open_referral_inbox_dialog(self):
         notifications = UserManager.get_referral_notifications(self.username, include_read=True, limit=300)
         dialog = QDialog(self)
-        dialog.setWindowTitle("Referral Notification Inbox")
+        dialog.setWindowTitle("Referral Inbox")
         dialog.resize(820, 480)
         v = QVBoxLayout(dialog)
         v.setContentsMargins(14, 14, 14, 14)
@@ -2628,6 +2651,8 @@ class EyeShieldApp(QMainWindow):
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setWordWrap(True)
+        table.setTextElideMode(Qt.ElideNone)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setStretchLastSection(True)
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -2635,13 +2660,18 @@ class EyeShieldApp(QMainWindow):
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         table.setRowCount(len(notifications))
         for idx, item in enumerate(notifications):
             status = "Read" if item.get("is_read") else "Unread"
             raw_title = str(item.get("title") or "").strip()
             raw_message = str(item.get("message") or "").strip()
             title_lower = raw_title.lower()
-            if "note" in title_lower and raw_message.lower().startswith("message on this patient"):
+            message_lower = raw_message.lower()
+            if "note" in title_lower and (
+                message_lower.startswith("message on this patient")
+                or "added a clinical note" in message_lower
+            ):
                 parts = raw_message.split(":", 1)
                 note_text = parts[1].strip() if len(parts) > 1 else raw_message
                 display_title = "Clinical Notes on This Patient"
@@ -2659,13 +2689,15 @@ class EyeShieldApp(QMainWindow):
             for col, value in enumerate(row_values):
                 qitem = QTableWidgetItem(value)
                 qitem.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                qitem.setToolTip(str(value))
                 if col == 0 and status == "Unread":
                     qitem.setForeground(QColor("#b45309"))
                 table.setItem(idx, col, qitem)
+        table.resizeRowsToContents()
         v.addWidget(table, 1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        mark_selected_btn = QPushButton("Mark Selected Read")
+        mark_selected_btn = QPushButton("Mark Selected as Read")
         close_btn = QPushButton("Close")
         mark_selected_btn.setEnabled(bool(notifications))
         buttons.addWidget(mark_selected_btn)
@@ -2984,7 +3016,7 @@ class EyeShieldApp(QMainWindow):
                 bar.setValue(count)
                 bar.setStyleSheet(
                     f"QProgressBar {{"
-                    f" background: {'#e8eef5' if not dark else '#22344a'};"
+                    f" background: transparent;"
                     f" border: 0; border-radius: 6px;"
                     f" }}"
                     f"QProgressBar::chunk {{"
