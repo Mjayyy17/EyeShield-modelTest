@@ -13,19 +13,19 @@ class HelpSupportPage(QWidget):
     def init_ui(self):
 
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(34, 24, 34, 24)
-        root_layout.setSpacing(18)
+        root_layout.setContentsMargins(28, 22, 28, 22)
+        root_layout.setSpacing(16)
         self.setStyleSheet(
             "QWidget { background: #f5f7fa; color: #1f2937; }"
         )
 
         # --- Header ---
         header_layout = QVBoxLayout()
-        header_layout.setSpacing(6)
+        header_layout.setSpacing(8)
         self._help_title_lbl = QLabel("Help & Support")
         self._help_title_lbl.setObjectName("pageHeader")
         self._help_title_lbl.setStyleSheet(
-            "font-size: 26px; font-weight: 700; color: #0f172a;"
+            "font-size: 27px; font-weight: 700; color: #0f172a; letter-spacing: 0.2px;"
         )
         header_layout.addWidget(self._help_title_lbl)
 
@@ -33,7 +33,7 @@ class HelpSupportPage(QWidget):
         self._help_subtitle_lbl.setObjectName("pageSubtitle")
         self._help_subtitle_lbl.setWordWrap(True)
         self._help_subtitle_lbl.setStyleSheet(
-            "font-size: 13px; line-height: 1.45; color: #475569;"
+            "font-size: 13px; line-height: 1.5; color: #475569;"
         )
         header_layout.addWidget(self._help_subtitle_lbl)
         root_layout.addLayout(header_layout)
@@ -63,8 +63,8 @@ class HelpSupportPage(QWidget):
         self._help_content_widget = QWidget()
         self._help_content_widget.setStyleSheet("background-color: transparent;")
         self._help_list_layout = QVBoxLayout(self._help_content_widget)
-        self._help_list_layout.setSpacing(14)
-        self._help_list_layout.setContentsMargins(0, 8, 0, 16)
+        self._help_list_layout.setSpacing(16)
+        self._help_list_layout.setContentsMargins(0, 8, 0, 10)
 
         self._build_help_groups("English")
 
@@ -152,10 +152,10 @@ class HelpSupportPage(QWidget):
         return (
             "<div style='font-size:13px; line-height:1.72; color:#334155;'>"
             "<style>"
-            "ul { margin: 0 0 4px 0; padding-left: 20px; }"
-            "li { margin: 0 0 8px 0; }"
+            "ul { margin: 0 0 2px 0; padding-left: 20px; }"
+            "li { margin: 0 0 9px 0; }"
             "li p, ul p { margin: 0; padding: 0; }"
-            "p { margin: 0 0 10px 0; }"
+            "p { margin: 0 0 9px 0; }"
             "</style>"
             f"{raw}"
             "</div>"
@@ -167,13 +167,13 @@ class HelpSupportPage(QWidget):
         card.setStyleSheet("""
             QWidget {
                 background-color: #ffffff;
-                border-radius: 10px;
-                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                border: 1px solid #d9e2ec;
             }
         """)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(22, 18, 22, 18)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(22, 20, 22, 20)
+        card_layout.setSpacing(14)
 
         # --- Card Header ---
         header_layout = QVBoxLayout()

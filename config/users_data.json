@@ -5,16 +5,6 @@
     "role": "admin"
   },
   {
-    "username": "tr",
-    "password": "sha256:7817bb812e82168bd48fe1ea6783078d42be37e8db9bdaafdac5c45804aca64f",
-    "role": "admin"
-  },
-  {
-    "username": "ew",
-    "password": "sha256:e7bbf0eda002c1ba04bfadfc73ed17c8b71d212419685fe490edfb4586f7030a",
-    "role": "admin"
-  },
-  {
     "username": "er",
     "password": "sha256:cc7e4412564ba8a761bd32ab4cc6086bac3c2c9e580367e0b0eb32a4316f9154",
     "role": "clinician"

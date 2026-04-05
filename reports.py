@@ -336,7 +336,7 @@ class ReferralDetailDialog(QDialog):
 
 
 class ArchivedRecordsDialog(QDialog):
-    """Admin-only dialog for reviewing and restoring archived patient records."""
+    """Dialog for reviewing archived patient records."""
 
     def __init__(self, reports_page: "ReportsPage"):
         super().__init__(reports_page)
@@ -458,14 +458,24 @@ class ArchivedRecordsDialog(QDialog):
         return self._record_lookup.get(item.data(Qt.UserRole)) if item else None
 
     def _update_restore_button(self):
-        has = self._get_selected_record() is not None
-        self.restore_btn.setEnabled(has)
-        self.delete_btn.setEnabled(has)
+        record = self._get_selected_record()
+        has = record is not None
+        can_manage = bool(has and self.reports_page._can_archive_record(record))
+        self.restore_btn.setEnabled(can_manage)
+        self.delete_btn.setEnabled(can_manage)
 
     def restore_selected_record(self):
         record = self._get_selected_record()
         if not record:
             QMessageBox.information(self, "Restore Record", "Select an archived patient record to restore.")
+            return
+        if not self.reports_page._can_archive_record(record):
+            owner = self.reports_page._record_owner_label(record)
+            QMessageBox.warning(
+                self,
+                "Restore Restricted",
+                f"Only the original screening doctor ({owner}) can restore this archived record.",
+            )
             return
         if not self.reports_page.restore_record(record):
             return
@@ -476,6 +486,14 @@ class ArchivedRecordsDialog(QDialog):
         record = self._get_selected_record()
         if not record:
             QMessageBox.information(self, "Delete Record", "Select an archived patient record to delete.")
+            return
+        if not self.reports_page._can_archive_record(record):
+            owner = self.reports_page._record_owner_label(record)
+            QMessageBox.warning(
+                self,
+                "Delete Restricted",
+                f"Only the original screening doctor ({owner}) can delete this archived record.",
+            )
             return
         label = f"{record['name'] or 'Unknown Patient'} ({record['patient_id'] or 'No ID'})"
         box = QMessageBox(self)
@@ -505,6 +523,7 @@ class ReportsPage(QWidget):
         self.specialization = str(specialization or os.environ.get("EYESHIELD_CURRENT_SPECIALIZATION", "")).strip()
         self.display_title = self.specialization if self.role == "clinician" and self.specialization else self.role
         self.is_admin = self.role == "admin"
+        self.can_manage_archives = str(self.role or "").strip().lower() in {"admin", "clinician"}
         self.records_changed_callback = None
         self.archived_records_dialog = None
         self._summary_cache = {}
@@ -607,13 +626,13 @@ class ReportsPage(QWidget):
         self.export_btn.setAutoDefault(True)
         self.export_btn.setDefault(True)
         self.export_btn.clicked.connect(self.export_summary)
-        if self.is_admin:
+        if self.can_manage_archives:
             self.archive_btn = QPushButton("Archive Selected")
             self.archive_btn.clicked.connect(self.archive_selected_record)
             self.archive_btn.setEnabled(False)
         else:
             self.archive_btn = None
-        if self.is_admin:
+        if self.can_manage_archives:
             self.archived_records_btn = QPushButton("Archived Records")
             self.archived_records_btn.clicked.connect(self.open_archived_records_window)
         else:
@@ -988,11 +1007,35 @@ class ReportsPage(QWidget):
             return name
         return f"Dr. {name}"
 
-    def _can_rescreen_record(self, record: dict) -> bool:
+    @staticmethod
+    def _normalize_owner_name(value: str) -> str:
+        name = str(value or "").strip().lower()
+        if name.startswith("dr. "):
+            return name[4:].strip()
+        if name.startswith("dr "):
+            return name[3:].strip()
+        return name
+
+    def _is_record_owner(self, record: dict | None) -> bool:
+        if not record:
+            return False
+        current_username = str(self.username or "").strip().lower()
         owner_username = str(record.get("original_screener_username") or "").strip().lower()
-        if not owner_username:
-            return True
-        return owner_username == str(self.username or "").strip().lower()
+        if owner_username:
+            return bool(current_username and owner_username == current_username)
+
+        owner_name = self._normalize_owner_name(record.get("original_screener_name"))
+        if not owner_name:
+            return False
+
+        current_display_name = self._normalize_owner_name(self.display_name)
+        return bool(owner_name and current_display_name and owner_name == current_display_name)
+
+    def _can_rescreen_record(self, record: dict) -> bool:
+        return self._is_record_owner(record)
+
+    def _can_archive_record(self, record: dict | None) -> bool:
+        return self._is_record_owner(record)
 
     def _can_internal_referral_record(self, record: dict) -> bool:
         return False
@@ -1019,9 +1062,9 @@ class ReportsPage(QWidget):
         rescreen_action = menu.addAction("Rescreen Patient")
         rescreen_action.setEnabled(self._can_rescreen_record(record))
         archive_action = None
-        if self.is_admin:
+        if self.archive_btn is not None:
             archive_action = menu.addAction("Archive Record")
-            archive_action.setEnabled(not bool(record.get("archived_at")))
+            archive_action.setEnabled(not bool(record.get("archived_at")) and self._can_archive_record(record))
 
         chosen = menu.exec(self.results_table.viewport().mapToGlobal(pos))
         if chosen == view_action:
@@ -1054,6 +1097,15 @@ class ReportsPage(QWidget):
             )
         else:
             self.rescreen_btn.setToolTip("Start a new screening for the selected patient")
+        if self.archive_btn is not None:
+            can_archive = bool(record and not record.get("archived_at") and self._can_archive_record(record))
+            self.archive_btn.setEnabled(can_archive)
+            if record and not self._can_archive_record(record):
+                self.archive_btn.setToolTip(
+                    f"Only the original screening doctor ({self._record_owner_label(record)}) can archive this record."
+                )
+            else:
+                self.archive_btn.setToolTip("Archive the selected active patient record")
 
     def start_referral_flow(self):
         record = self._get_selected_record()
@@ -1062,9 +1114,6 @@ class ReportsPage(QWidget):
             return
 
         self.generate_referral()
-
-        if self.is_admin:
-            self.archive_btn.setEnabled(bool(record and not record["archived_at"]))
 
     def _on_table_row_double_clicked(self, index):
         """Handle double-click on table row to show patient details."""
@@ -1183,6 +1232,14 @@ class ReportsPage(QWidget):
         if not record:
             QMessageBox.information(self, "Archive Record", "Select a patient record to archive.")
             return
+        if not self._can_archive_record(record):
+            owner_text = self._record_owner_label(record)
+            QMessageBox.warning(
+                self,
+                "Archive Restricted",
+                f"Only the original screening doctor ({owner_text}) can archive this record.",
+            )
+            return
         if record["archived_at"]:
             QMessageBox.information(self, "Archive Record", "The selected patient record is already archived.")
             return
@@ -1265,6 +1322,14 @@ class ReportsPage(QWidget):
         if not record or not record["archived_at"]:
             QMessageBox.information(self, "Restore Record", "The selected patient record is already active.")
             return False
+        if not self._can_archive_record(record):
+            owner = self._record_owner_label(record)
+            QMessageBox.warning(
+                self,
+                "Restore Restricted",
+                f"Only the original screening doctor ({owner}) can restore this archived record.",
+            )
+            return False
         label = f"{record['name'] or 'Unknown Patient'} ({record['patient_id'] or 'No ID'})"
         if QMessageBox.question(self, "Restore Record", f"Restore {label}?",
                                 QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
@@ -1277,9 +1342,28 @@ class ReportsPage(QWidget):
     def delete_archived_record(self, record):
         if not record or not record["archived_at"]:
             return False
+        if not self._can_archive_record(record):
+            return False
         try:
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT original_screener_username, original_screener_name
+                FROM patient_records
+                WHERE id = ? AND archived_at IS NOT NULL
+                """,
+                (record["id"],),
+            )
+            owner_row = cur.fetchone()
+            owner_record = {
+                "original_screener_username": owner_row[0] if owner_row else "",
+                "original_screener_name": owner_row[1] if owner_row else "",
+            }
+            if not self._is_record_owner(owner_record):
+                conn.close()
+                return False
+
             cur.execute("DELETE FROM patient_records WHERE id=? AND archived_at IS NOT NULL", (record["id"],))
             conn.commit()
             success = cur.rowcount > 0

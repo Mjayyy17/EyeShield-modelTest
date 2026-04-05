@@ -1059,7 +1059,7 @@ class ScreeningPage(QWidget):
         self.notes.setPlaceholderText("Enter clinical notes…")
         self.notes.setMinimumHeight(72)
         self.notes.setMaximumHeight(90)
-        c2.addLayout(field("Clinical Notes", self.notes, "scr_label_notes"))
+        self.notes.hide()
         left_col.addWidget(card2)
         left_col.addStretch()
         splitter.addWidget(left_scroll)
@@ -1198,8 +1198,7 @@ class ScreeningPage(QWidget):
         self.setTabOrder(self.diabetes_diagnosis_date, self.diabetes_duration)
         self.setTabOrder(self.diabetes_duration, self.hba1c)
         self.setTabOrder(self.hba1c, self.prev_treatment)
-        self.setTabOrder(self.prev_treatment, self.notes)
-        self.setTabOrder(self.notes, self.va_left)
+        self.setTabOrder(self.prev_treatment, self.va_left)
         self.setTabOrder(self.va_left, self.va_right)
         self.setTabOrder(self.va_right, self.bp_systolic)
         self.setTabOrder(self.bp_systolic, self.bp_diastolic)
@@ -1219,17 +1218,35 @@ class ScreeningPage(QWidget):
         self.name_regex = QRegularExpression(r"^[A-Za-z][A-Za-z\s\-']*$")
         self.p_name.setValidator(QRegularExpressionValidator(self.name_regex, self))
 
-        # Visual acuity validator (20/XX or 6/XX format)
-        self.va_regex = QRegularExpression(r"^(20|6)/\d{1,3}$")
-        va_validator = QRegularExpressionValidator(self.va_regex, self)
-        self.va_left.setValidator(va_validator)
-        self.va_right.setValidator(va_validator)
+        # Keep visual acuity fields free-text for clinician entry.
 
         # Connect blood pressure and glucose validation
         self.bp_systolic.editingFinished.connect(self._validate_blood_pressure)
         self.bp_diastolic.editingFinished.connect(self._validate_blood_pressure)
         self.fbs.editingFinished.connect(self._validate_blood_glucose)
         self.rbs.editingFinished.connect(self._validate_blood_glucose)
+
+    def _normalize_visual_acuity(self, value: str) -> tuple[str, bool]:
+        text = str(value or "").strip().upper()
+        if not text:
+            return "", True
+
+        # Normalize low-vision shorthand and Snellen spacing variations.
+        aliases = {
+            "COUNTING FINGERS": "CF",
+            "HAND MOTION": "HM",
+            "HAND MOVEMENT": "HM",
+            "LIGHT PERCEPTION": "LP",
+            "NO LIGHT PERCEPTION": "NLP",
+        }
+        if text in aliases:
+            text = aliases[text]
+
+        if "/" in text:
+            parts = [part.strip() for part in text.split("/", 1)]
+            text = f"{parts[0]}/{parts[1]}"
+
+        return text, True
 
     def _validate_patient_basics(self):
         name = self.p_name.text().strip()
@@ -1273,6 +1290,15 @@ class ScreeningPage(QWidget):
         if age_val < 1 or age_val > 120:
             QMessageBox.warning(self, "Invalid Age", "Age must be between 1 and 120.")
             return False
+
+        va_left_text, _ = self._normalize_visual_acuity(self.va_left.text()) if hasattr(self, "va_left") else ("", True)
+        va_right_text, _ = self._normalize_visual_acuity(self.va_right.text()) if hasattr(self, "va_right") else ("", True)
+
+        if hasattr(self, "va_left"):
+            self.va_left.setText(va_left_text)
+        if hasattr(self, "va_right"):
+            self.va_right.setText(va_right_text)
+
         return True
 
     def _on_hba1c_changed(self, value: float):
@@ -1516,14 +1542,14 @@ class ScreeningPage(QWidget):
         if fbs > 0 and (fbs < 70 or fbs > 400):
             QMessageBox.warning(
                 self, "Blood Glucose",
-                "Fasting blood sugar should be between 70-400 mg/dL.\nIf this reading is correct, please document in clinical notes."
+                "Fasting blood sugar should be between 70-400 mg/dL.\nIf this reading is correct, document it in the results decision notes."
             )
             return False
 
         if rbs > 0 and (rbs < 70 or rbs > 600):
             QMessageBox.warning(
                 self, "Blood Glucose",
-                "Random blood sugar should be between 70-600 mg/dL.\nIf this reading is correct, please document in clinical notes."
+                "Random blood sugar should be between 70-600 mg/dL.\nIf this reading is correct, document it in the results decision notes."
             )
             return False
 
@@ -1620,7 +1646,7 @@ class ScreeningPage(QWidget):
         self.notes.setMinimumHeight(80)
         self.notes.setPlaceholderText("Enter clinical notes")
         self.notes.setStyleSheet(TEXTEDIT_STYLE)
-        clinical_form.addRow("Notes:", self.notes)
+        self.notes.hide()
 
         clinical_group.setLayout(clinical_form)
         layout.addWidget(clinical_group)
