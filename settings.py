@@ -639,6 +639,11 @@ class SettingsPage(QWidget):
         admin_contact_layout.addWidget(self.admin_contact_location_label, 2, 1)
         admin_contact_layout.addWidget(self.admin_contact_location_input, 3, 1)
 
+        self.backup_now_btn = QPushButton("Backup Now")
+        self.backup_now_btn.setObjectName("primaryAction")
+        self.backup_now_btn.clicked.connect(self._backup_now)
+        admin_contact_layout.addWidget(self.backup_now_btn, 4, 0, 1, 2)
+
         self.referral_hospitals_group = QGroupBox("Trusted referred hospitals")
         referral_layout = QVBoxLayout(self.referral_hospitals_group)
         referral_layout.setSpacing(6)
@@ -904,12 +909,16 @@ class SettingsPage(QWidget):
         button_row.addStretch(1)
         self.reset_btn = QPushButton("Reset Defaults")
         self.reset_btn.clicked.connect(self.reset_defaults)
+        self.quick_backup_btn = QPushButton("Backup Now")
+        self.quick_backup_btn.setObjectName("primaryAction")
+        self.quick_backup_btn.clicked.connect(self._backup_now)
         self.save_btn = QPushButton("Save Settings")
         self.save_btn.setObjectName("primaryAction")
         self.save_btn.setAutoDefault(True)
         self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self.save_settings)
         button_row.addWidget(self.reset_btn)
+        button_row.addWidget(self.quick_backup_btn)
         button_row.addWidget(self.save_btn)
         layout.addLayout(button_row)
 
@@ -1039,6 +1048,50 @@ class SettingsPage(QWidget):
         if not show_admin_contact:
             return
         self._load_admin_contact_into_fields()
+
+    def _backup_now(self):
+        if self._active_role() != "admin":
+            QMessageBox.warning(self, "Backup", "Only admins can create backups.")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Create Backup",
+            "Create backup now? This includes users, patient records, and fundus images only.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        username = self._active_username()
+        success, message, backup_path = UserManager.create_fundus_only_backup(
+            acting_username=username,
+            acting_role=self._active_role(),
+        )
+
+        if not success:
+            self.status_label.setText("Backup failed")
+            QMessageBox.warning(self, "Backup", message)
+            return
+
+        if username:
+            try:
+                user_store.log_activity_event(
+                    username,
+                    "BACKUP_CREATED",
+                    metadata={"path": backup_path or "", "scope": "fundus_only"},
+                    action_text=f"BACKUP_CREATED path={backup_path or ''};scope=fundus_only",
+                )
+            except Exception:
+                pass
+
+        self.status_label.setText("Backup created")
+        QMessageBox.information(
+            self,
+            "Backup Complete",
+            f"{message}\n\nSaved to:\n{backup_path}",
+        )
 
     def _configure_session_support_section(self):
         role = self._active_role()

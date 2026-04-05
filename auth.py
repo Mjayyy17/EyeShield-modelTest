@@ -11,6 +11,7 @@ import os
 import json
 import re
 import secrets
+import shutil
 from datetime import timezone
 from datetime import datetime
 from typing import Any, Optional
@@ -985,6 +986,9 @@ class UserManager:
             normalized_role or "",
         )
 
+        if normalized_role == ADMIN_ROLE:
+            availability_json_value = ""
+
         if not username or not password or not normalized_role:
             return False
         if username.lower() == password.lower():
@@ -1160,6 +1164,108 @@ class UserManager:
         
         conn.close()
         return users
+
+    @staticmethod
+    def create_fundus_only_backup(
+        acting_username: Optional[str] = None,
+        acting_role: Optional[str] = None,
+    ) -> tuple[bool, str, Optional[str]]:
+        """Create a local backup with users, patient records, and fundus images only."""
+        if str(acting_role or "").strip().lower() != ADMIN_ROLE:
+            return False, "Only admin accounts can create backups.", None
+
+        app_root = os.path.dirname(os.path.abspath(__file__))
+        db_dir = os.path.dirname(os.path.abspath(DB_FILE)) or app_root
+        backup_root = os.path.join(db_dir, "backups")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = os.path.join(backup_root, f"eyeshield_backup_{timestamp}")
+        fundus_dir = os.path.join(backup_dir, "fundus_images")
+
+        try:
+            os.makedirs(fundus_dir, exist_ok=False)
+        except OSError as err:
+            return False, f"Unable to prepare backup folder: {err}", None
+
+        conn = get_connection()
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        try:
+            cur.execute("SELECT * FROM users")
+            users_payload = [dict(row) for row in cur.fetchall()]
+
+            cur.execute("SELECT * FROM patient_records")
+            records = [dict(row) for row in cur.fetchall()]
+        except sqlite3.Error as err:
+            conn.close()
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            return False, f"Unable to read database for backup: {err}", None
+
+        conn.close()
+
+        copied_fundus = 0
+        missing_fundus = 0
+        processed_records: list[dict[str, Any]] = []
+
+        for record in records:
+            item = dict(record)
+            source_rel = str(item.get("source_image_path") or "").strip()
+            item["heatmap_image_path"] = ""
+
+            if not source_rel:
+                processed_records.append(item)
+                continue
+
+            source_abs = source_rel if os.path.isabs(source_rel) else os.path.join(app_root, source_rel)
+            source_abs = os.path.abspath(source_abs)
+            if not os.path.isfile(source_abs):
+                missing_fundus += 1
+                processed_records.append(item)
+                continue
+
+            patient_id = str(item.get("patient_id") or item.get("id") or "record").strip()
+            safe_patient = re.sub(r"[^A-Za-z0-9_.-]", "_", patient_id) or "record"
+            filename = os.path.basename(source_abs)
+            candidate = os.path.join(fundus_dir, f"{safe_patient}_{filename}")
+            suffix = 1
+            while os.path.exists(candidate):
+                candidate = os.path.join(fundus_dir, f"{safe_patient}_{suffix}_{filename}")
+                suffix += 1
+
+            try:
+                shutil.copy2(source_abs, candidate)
+            except OSError:
+                missing_fundus += 1
+                processed_records.append(item)
+                continue
+
+            copied_fundus += 1
+            item["source_image_path"] = os.path.join("fundus_images", os.path.basename(candidate)).replace("\\", "/")
+            processed_records.append(item)
+
+        manifest = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": str(acting_username or "").strip(),
+            "scope": "users + patient_records + fundus_only",
+            "users_count": len(users_payload),
+            "patient_records_count": len(processed_records),
+            "fundus_copied": copied_fundus,
+            "fundus_missing": missing_fundus,
+            "heatmaps_included": False,
+        }
+
+        try:
+            with open(os.path.join(backup_dir, "users.json"), "w", encoding="utf-8") as f:
+                json.dump(users_payload, f, indent=2)
+            with open(os.path.join(backup_dir, "patient_records.json"), "w", encoding="utf-8") as f:
+                json.dump(processed_records, f, indent=2)
+            with open(os.path.join(backup_dir, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2)
+        except OSError as err:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            return False, f"Unable to write backup files: {err}", None
+
+        return True, "Backup created successfully.", backup_dir
     
     @staticmethod
     def update_user_role(
@@ -1204,6 +1310,11 @@ class UserManager:
                 (normalized_role, username)
             )
             updated_role = cur.rowcount > 0
+            if normalized_role == ADMIN_ROLE:
+                cur.execute(
+                    "UPDATE users SET availability_json = '' WHERE username = ?",
+                    (username,),
+                )
             if normalized_role == "clinician":
                 cur.execute(
                     """
@@ -1321,10 +1432,16 @@ class UserManager:
             conn.close()
             return False
 
+        target_role = UserManager._get_user_role(conn, username)
+        if target_role is None:
+            conn.close()
+            return False
+
         try:
+            availability_value = "" if target_role == ADMIN_ROLE else str(availability_json or "")
             cur.execute(
                 "UPDATE users SET availability_json = ? WHERE username = ?",
-                (str(availability_json or ""), username),
+                (availability_value, username),
             )
             conn.commit()
             success = cur.rowcount > 0

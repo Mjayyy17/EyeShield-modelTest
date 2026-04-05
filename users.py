@@ -1252,10 +1252,12 @@ class NewUserDialog(QDialog):
             )
             return
 
-        availability_dialog = AvailabilityDialog(self)
-        if availability_dialog.exec() != QDialog.Accepted:
-            return
-        availability_json = "" if availability_dialog.skip_selected else availability_dialog.get_availability_json()
+        availability_json = ""
+        if role != "admin":
+            availability_dialog = AvailabilityDialog(self)
+            if availability_dialog.exec() != QDialog.Accepted:
+                return
+            availability_json = "" if availability_dialog.skip_selected else availability_dialog.get_availability_json()
 
         # ── Create ────────────────────────────────────────────────────
         success = UserManager.create_user(
@@ -1909,6 +1911,15 @@ class UsersPage(QWidget):
             QMessageBox.warning(self, "User Not Found", "Unable to load selected user details.")
             return
 
+        role = str(user.get("role") or "").strip().lower()
+        if role == "admin":
+            QMessageBox.information(
+                self,
+                "Availability Not Required",
+                "Admin accounts do not require availability day/time.",
+            )
+            return
+
         initial_payload = None
         raw_availability = user.get("availability_json")
         if raw_availability:
@@ -2060,8 +2071,14 @@ class UsersPage(QWidget):
 
             availability_time_text = "Not set"
             availability_days_text = "Not set"
+            role = str(user.get("role") or "").strip().lower()
+
+            if role == "admin":
+                availability_time_text = ""
+                availability_days_text = ""
+
             raw_availability = user.get("availability_json")
-            if raw_availability:
+            if raw_availability and role != "admin":
                 try:
                     payload = json.loads(raw_availability) if isinstance(raw_availability, str) else raw_availability
                 except Exception:
