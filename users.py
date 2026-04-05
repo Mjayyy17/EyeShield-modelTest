@@ -2218,15 +2218,6 @@ class UsersPage(QWidget):
 
         username = username_item.text()
         current_role_val = str(role_item.data(Qt.UserRole) or role_item.text().strip())
-        acting_username, _ = self._actor_context()
-
-        if acting_username and username.strip().lower() == acting_username.strip().lower():
-            QMessageBox.warning(
-                self,
-                "Not Allowed",
-                "For safety, you cannot change your own role.",
-            )
-            return
 
         dlg = ChangeRoleDialog(username, current_role_val, parent=self)
         if dlg.exec() != QDialog.Accepted:

@@ -1194,10 +1194,6 @@ class UserManager:
             conn.close()
             return True
 
-        if acting_username and username.lower() == acting_username.strip().lower():
-            conn.close()
-            return False
-
         if current_role == ADMIN_ROLE and normalized_role != ADMIN_ROLE and UserManager._count_admins(conn) <= 1:
             conn.close()
             return False
