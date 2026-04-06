@@ -685,8 +685,8 @@ class ReportsPage(QWidget):
         rl.setContentsMargins(18, 16, 18, 18)
         rl.setSpacing(14)
 
-        self.results_table = QTableWidget(0, 7)
-        self.results_table.setHorizontalHeaderLabels(["Patient ID","Name","Eye Screened","Screening Date","Result","Confidence","Screened by"])
+        self.results_table = QTableWidget(0, 8)
+        self.results_table.setHorizontalHeaderLabels(["Patient ID","Name","Eye Screened","Screening Date","AI Result","Doctor's Result","Confidence","Screened by"])
         self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.results_table.setAlternatingRowColors(True)
         self.results_table.setShowGrid(False)
@@ -705,8 +705,8 @@ class ReportsPage(QWidget):
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
         rl.addWidget(self.results_table)
         root.addWidget(self._results_group)
 
@@ -868,7 +868,11 @@ class ReportsPage(QWidget):
                 date_text = "\n".join(self._format_screening_datetime(value) for value in unique_dates)
             else:
                 date_text = "—"
-            result_text = "\n".join(
+            ai_result_text = "\n".join(
+                str(item.get("ai_classification") or item.get("result") or "—")
+                for item in ordered_rows
+            )
+            doctor_result_text = "\n".join(
                 str(item.get("final_diagnosis_icdr") or item.get("doctor_classification") or item.get("result") or "—")
                 for item in ordered_rows
             )
@@ -879,8 +883,10 @@ class ReportsPage(QWidget):
                     str(primary.get("name") or ""),
                     eyes_text,
                     date_text,
-                    result_text,
+                    ai_result_text,
+                    doctor_result_text,
                     confidence_text,
+                    str(primary.get("ai_classification") or ""),
                     str(primary.get("final_diagnosis_icdr") or ""),
                     str(primary.get("doctor_classification") or ""),
                     str(primary.get("doctor_findings") or ""),
@@ -895,7 +901,9 @@ class ReportsPage(QWidget):
                     "name": primary.get("name"),
                     "eyes": eyes_text,
                     "screened_at": date_text,
-                    "result": result_text,
+                    "ai_result": ai_result_text,
+                    "doctor_result": doctor_result_text,
+                    "result": doctor_result_text,
                     "confidence": confidence_text,
                     "final_diagnosis_icdr": primary.get("final_diagnosis_icdr"),
                     "doctor_classification": primary.get("doctor_classification"),
@@ -968,19 +976,22 @@ class ReportsPage(QWidget):
             screened_at_item = QTableWidgetItem(str(row.get("screened_at") or ""))
             screened_at_item.setTextAlignment(Qt.AlignCenter)
             self.results_table.setItem(i, 3, screened_at_item)
-            ri = QTableWidgetItem(str(row["result"] or ""))
-            ri.setTextAlignment(Qt.AlignCenter)
+            ai_item = QTableWidgetItem(str(row.get("ai_result") or ""))
+            ai_item.setTextAlignment(Qt.AlignCenter)
+            self.results_table.setItem(i, 4, ai_item)
+            doctor_item = QTableWidgetItem(str(row.get("doctor_result") or ""))
+            doctor_item.setTextAlignment(Qt.AlignCenter)
             if any(self._is_high_attention_result(item.get("result")) for item in (row.get("source_rows") or [])):
-                ri.setForeground(result_color("high"))
+                doctor_item.setForeground(result_color("high"))
             elif all("no dr" in str(item.get("result") or "").lower() for item in (row.get("source_rows") or [])):
-                ri.setForeground(result_color("normal"))
-            self.results_table.setItem(i, 4, ri)
+                doctor_item.setForeground(result_color("normal"))
+            self.results_table.setItem(i, 5, doctor_item)
             confidence_item = QTableWidgetItem(str(row["confidence"] or ""))
             confidence_item.setTextAlignment(Qt.AlignCenter)
-            self.results_table.setItem(i, 5, confidence_item)
+            self.results_table.setItem(i, 6, confidence_item)
             screened_by_item = QTableWidgetItem(str(row.get("screened_by") or "--"))
             screened_by_item.setTextAlignment(Qt.AlignCenter)
-            self.results_table.setItem(i, 6, screened_by_item)
+            self.results_table.setItem(i, 7, screened_by_item)
         self.results_table.setSortingEnabled(True)
         self.results_table.resizeRowsToContents()
         if hasattr(self, "filtered_count_label"):

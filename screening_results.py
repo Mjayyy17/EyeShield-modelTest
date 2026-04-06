@@ -528,16 +528,16 @@ class ResultsWindow(QWidget):
         reco_layout = QVBoxLayout(reco_card)
         reco_layout.setContentsMargins(18, 18, 18, 18)
         reco_layout.setSpacing(8)
-        reco_title = QLabel("AI RECOMMENDATION")
+        reco_title = QLabel("AI Recommendation")
         reco_title.setObjectName("resultStatTitle")
-        self.recommendation_value = QLabel("Consult eye care specialist")
-        self.recommendation_value.setObjectName("resultStatValue")
-        self.recommendation_value.setWordWrap(True)
-        self.recommendation_badge = QLabel("Routine follow-up")
-        self.recommendation_badge.setObjectName("okBadge")
+        self.treatment_suggestions_title = QLabel("Possible treatment suggestions (Doctor review required)")
+        self.treatment_suggestions_title.setObjectName("resultStatTitle")
+        self.treatment_suggestions_value = QLabel("- Awaiting model result")
+        self.treatment_suggestions_value.setObjectName("treatmentSuggestionsBody")
+        self.treatment_suggestions_value.setWordWrap(True)
         reco_layout.addWidget(reco_title)
-        reco_layout.addWidget(self.recommendation_value)
-        reco_layout.addWidget(self.recommendation_badge, 0, Qt.AlignmentFlag.AlignLeft)
+        reco_layout.addWidget(self.treatment_suggestions_title)
+        reco_layout.addWidget(self.treatment_suggestions_value)
 
         stats_row = QHBoxLayout()
         stats_row.setSpacing(16)
@@ -889,6 +889,16 @@ class ResultsWindow(QWidget):
                 line-height: 1.6;
                 padding: 0;
             }
+            QLabel#treatmentSuggestionsBody {
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 2px 0 0 0;
+                color: #1f2937;
+                font-size: 13px;
+                font-weight: 500;
+                line-height: 1.5;
+            }
             QLabel#summaryRowSuccess {
                 background: transparent;
                 border: none;
@@ -1085,6 +1095,44 @@ class ResultsWindow(QWidget):
     def _format_percent(value: float) -> str:
         return f"{max(0.0, min(100.0, value)):.1f}%"
 
+    def _build_treatment_suggestions(self, result_class: str, patient_data: dict | None, uncertainty_pct: float) -> str:
+        grade_map = {
+            "No DR": [
+                "Routine monitoring every 12 months",
+                "No ocular intervention indicated at this time",
+                "Continue preventive diabetes care and risk-factor control (glucose, BP, lipids)",
+            ],
+            "Mild DR": [
+                "Monitoring every 6-12 months",
+                "Usually managed with observation and metabolic optimization",
+                "Reinforce glucose/BP/lipid control to prevent progression",
+            ],
+            "Moderate DR": [
+                "Closer monitoring every 3-6 months",
+                "Refer for ophthalmology assessment to evaluate progression risk",
+                "Assess for macular edema and consider treatment planning if present",
+                "Strengthen systemic control (glucose, BP, lipids)",
+            ],
+            "Severe DR": [
+                "Very close monitoring (every 2-3 months)",
+                "Consider early Anti-VEGF therapy",
+                "Possible Panretinal Photocoagulation (PRP) in high-risk cases",
+                "Aggressive systemic control (glucose, BP, lipids)",
+            ],
+            "Proliferative DR": [
+                "Immediate retina specialist management",
+                "Anti-VEGF therapy is commonly considered",
+                "Panretinal Photocoagulation (PRP) is often required",
+                "Evaluate for vitreoretinal surgery when tractional or non-clearing vitreous hemorrhage is suspected",
+                "Aggressive systemic control (glucose, BP, lipids)",
+            ],
+        }
+        suggestions = grade_map.get(
+            result_class,
+            ["Ophthalmology review for confirmation and management planning"],
+        )
+        return "Treatment / Management:\n\n" + "\n".join(f"- {item}" for item in suggestions)
+
     def _reset_save_button_default(self):
         self.btn_save.setEnabled(True)
         self.btn_save.setText("Save Result")
@@ -1204,8 +1252,10 @@ class ResultsWindow(QWidget):
     def get_decision_payload(self) -> dict:
         ai_value = str(self._current_result_class or "").strip()
         doctor_value = str(self.doctor_classification_input.text() or self._doctor_classification or "").strip()
-        requires_override = doctor_value and ai_value and doctor_value != ai_value
-        mode = "override" if requires_override else "accepted"
+        requires_override = bool(doctor_value and ai_value and doctor_value != ai_value)
+        mode = self._decision_mode if self._decision_mode in ("accepted", "override") else "pending"
+        if mode == "accepted" and requires_override:
+            mode = "override"
         override_text = str(self.override_reason_input.toPlainText() or self._override_justification or "").strip()
         findings_text = str(self.findings_input.toPlainText() or self._doctor_findings or "").strip()
 
@@ -1224,6 +1274,9 @@ class ResultsWindow(QWidget):
         }
 
     def validate_decision_before_save(self) -> tuple[bool, str]:
+        if self._decision_mode not in ("accepted", "override"):
+            return False, "Please choose Accept AI result or Override AI result before saving."
+
         payload = self.get_decision_payload()
         doctor_value = str(payload.get("doctor_classification") or "").strip()
         if not doctor_value:
@@ -1309,12 +1362,13 @@ class ResultsWindow(QWidget):
         self.uncertainty_value.setText(f"Uncertainty: {self._format_percent(uncertainty_pct)}")
         self.uncertainty_bar.setValue(int(round(uncertainty_pct * 10)))
 
-        # Grade-specific recommendation
-        recommendation = DR_RECOMMENDATIONS.get(result_class, "Consult an eye care specialist")
+        # Severity-based possible treatment suggestions
         if is_loading:
-            recommendation = "—"
-        self.recommendation_value.setText(recommendation)
-        self.recommendation_badge.setText("Routine follow-up" if result_class == "No DR" else "Clinical follow-up")
+            self.treatment_suggestions_value.setText("- Complete analysis to view possible treatment suggestions.")
+        else:
+            self.treatment_suggestions_value.setText(
+                self._build_treatment_suggestions(result_class, patient_data, uncertainty_pct)
+            )
 
         # Subtitle
         if is_loading:
