@@ -237,7 +237,7 @@ class ResultsWindow(QWidget):
         self.btn_referral.setEnabled(False)
         self.btn_referral.clicked.connect(self._show_referral_options)
 
-        self.btn_screen_another = QPushButton("Screen Other Eye")
+        self.btn_screen_another = QPushButton("Add Follow-Up Screening")
         self.btn_screen_another.setObjectName("ghostAction")
         self.btn_screen_another.setMinimumHeight(40)
         self.btn_screen_another.setIconSize(QSize(18, 18))
@@ -267,10 +267,36 @@ class ResultsWindow(QWidget):
         self._loading_bar.hide()
         layout.addWidget(self._loading_bar)
 
-        self.save_note_label = QLabel("")
-        self.save_note_label.setObjectName("metaText")
-        self.save_note_label.hide()
-        layout.addWidget(self.save_note_label)
+        # Progression Summary Panel (Follow-up only)
+        self.progression_panel = QFrame()
+        self.progression_panel.setObjectName("progressionPanel")
+        self.progression_panel.setStyleSheet("""
+            QFrame#progressionPanel {
+                background: #fdf2f2;
+                border: 1px solid #fecaca;
+                border-radius: 12px;
+                margin-top: 10px;
+            }
+        """)
+        self.progression_panel.hide()
+        prog_layout = QVBoxLayout(self.progression_panel)
+        prog_layout.setContentsMargins(16, 12, 16, 12)
+        prog_layout.setSpacing(6)
+        
+        prog_header = QLabel("CLINICAL PROGRESSION SUMMARY")
+        prog_header.setStyleSheet("font-size: 11px; font-weight: 700; color: #991b1b; letter-spacing: 0.5px;")
+        prog_layout.addWidget(prog_header)
+        
+        self.progression_text = QLabel("Progression detected: Mild -> Moderate")
+        self.progression_text.setStyleSheet("font-size: 14px; font-weight: 600; color: #1f2937;")
+        prog_layout.addWidget(self.progression_text)
+        
+        self.progression_trend = QLabel("Trend: Stable")
+        self.progression_trend.setStyleSheet("font-size: 13px; color: #4b5563;")
+        prog_layout.addWidget(self.progression_trend)
+        
+        # Add to main layout
+        layout.addWidget(self.progression_panel)
 
         image_row = QHBoxLayout()
         image_row.setSpacing(16)
@@ -570,8 +596,12 @@ class ResultsWindow(QWidget):
         first_col.setSpacing(4)
         self.bilateral_first_eye_lbl = QLabel("—")
         self.bilateral_first_eye_lbl.setObjectName("resultStatTitle")
+        self.bilateral_first_eye_lbl.setWordWrap(True)
+        self.bilateral_first_eye_lbl.setStyleSheet("font-size:15px;font-weight:600;")
         self.bilateral_first_result_lbl = QLabel("—")
         self.bilateral_first_result_lbl.setObjectName("resultStatValue")
+        self.bilateral_first_result_lbl.setWordWrap(True)
+        self.bilateral_first_result_lbl.setStyleSheet("font-size:15px;font-weight:600;")
         self.bilateral_first_saved_lbl = QLabel("✓ Saved")
         self.bilateral_first_saved_lbl.setStyleSheet("font-weight:700;font-size:13px;")
         self.bilateral_first_saved_lbl.setObjectName("successLabel")
@@ -586,8 +616,12 @@ class ResultsWindow(QWidget):
         second_col.setSpacing(4)
         self.bilateral_second_eye_lbl = QLabel("—")
         self.bilateral_second_eye_lbl.setObjectName("resultStatTitle")
+        self.bilateral_second_eye_lbl.setWordWrap(True)
+        self.bilateral_second_eye_lbl.setStyleSheet("font-size:15px;font-weight:600;")
         self.bilateral_second_result_lbl = QLabel("—")
         self.bilateral_second_result_lbl.setObjectName("resultStatValue")
+        self.bilateral_second_result_lbl.setWordWrap(True)
+        self.bilateral_second_result_lbl.setStyleSheet("font-size:15px;font-weight:600;")
         self.bilateral_second_saved_lbl = QLabel("Unsaved")
         self.bilateral_second_saved_lbl.setStyleSheet("font-weight:700;font-size:13px;")
         self.bilateral_second_saved_lbl.setObjectName("errorLabel")
@@ -1331,6 +1365,12 @@ class ResultsWindow(QWidget):
             self.bilateral_frame.show()
         else:
             self._first_eye_context = {}
+            # Make sure trend classification is blank if no second screening yet
+            self.bilateral_first_eye_lbl.setText("—")
+            self.bilateral_first_result_lbl.setText("—")
+            self.bilateral_second_eye_lbl.setText("—")
+            self.bilateral_second_result_lbl.setText("—")
+            self.bilateral_second_saved_lbl.setText("")
             self.bilateral_frame.hide()
 
         # Classification with severity colour
@@ -1477,6 +1517,47 @@ class ResultsWindow(QWidget):
             write_activity("INFO", "DIALOG_BACK_TO_SCREENING", "User went back to patient info")
         else:
             write_activity("WARNING", "DIALOG_BACK_TO_SCREENING", "No stacked_widget found")
+
+    def set_progression_info(self, prev_result, current_result):
+        """Show progression summary for follow-up screenings."""
+        if not prev_result or not current_result or current_result in ("Pending", "Analyzing…", "Ungradable"):
+            self.progression_panel.hide()
+            return
+
+        severity_levels = ["No DR", "Mild DR", "Moderate DR", "Severe DR", "Proliferative DR"]
+        
+        try:
+            # Clean up result strings if they contain confidence
+            p_res = str(prev_result).split('(')[0].strip()
+            c_res = str(current_result).split('(')[0].strip()
+            
+            if p_res in severity_levels and c_res in severity_levels:
+                prev_idx = severity_levels.index(p_res)
+                curr_idx = severity_levels.index(c_res)
+                
+                if curr_idx > prev_idx:
+                    trend = "Worsened (Rapid deterioration)" if curr_idx - prev_idx > 1 else "Worsened"
+                    trend_color = "#991b1b"
+                elif curr_idx < prev_idx:
+                    trend = "Improved"
+                    trend_color = "#166534"
+                else:
+                    trend = "Stable"
+                    trend_color = "#4b5563"
+                    
+                self.progression_text.setText(f"Progression detected: {p_res} \u2192 {c_res}")
+                self.progression_trend.setText(f"Trend: {trend}")
+                self.progression_trend.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {trend_color};")
+                self.progression_trend.show()
+            else:
+                self.progression_text.setText(f"Follow-up: {p_res} to {c_res}")
+                self.progression_trend.setText("") # Blank if not a standard DR stage
+                self.progression_trend.hide()
+                
+            self.progression_panel.show()
+                
+        except (ValueError, TypeError):
+            self.progression_panel.hide()
 
     def save_patient(self):
         if not self.parent_page or not hasattr(self.parent_page, "save_screening"):

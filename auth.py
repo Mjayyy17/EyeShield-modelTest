@@ -171,6 +171,11 @@ class UserManager:
         "doctor_findings": "TEXT",
         "decision_by_username": "TEXT",
         "decision_at": "TEXT",
+        "follow_up": "TEXT",
+        "followup_date": "TEXT",
+        "followup_label": "TEXT",
+        "screening_type": "TEXT",
+        "previous_screening_id": "INTEGER",
     }
 
     _REFERRAL_HOSPITAL_COLUMNS = {

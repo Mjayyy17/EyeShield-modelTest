@@ -205,7 +205,7 @@ class EyeShieldApp(QMainWindow):
             },
             {
                 "icon": self._resolve_existing_path(os.path.join(icons_dir, "screening.svg")),
-                "label": "Screening",
+                "label": "Assessment",
                 "page_index": 1,
                 "requires_admin": False,
             },
@@ -217,7 +217,7 @@ class EyeShieldApp(QMainWindow):
             },
             {
                 "icon": self._resolve_existing_path(os.path.join(icons_dir, "reports.svg")),
-                "label": "Reports",
+                "label": "Analytics",
                 "page_index": 3,
                 "requires_admin": False,
             },

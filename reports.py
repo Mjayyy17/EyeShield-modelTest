@@ -14,7 +14,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QGroupBox,
     QTableWidget, QTableWidgetItem, QLineEdit, QComboBox, QHeaderView,
-    QFileDialog, QDialog, QMessageBox, QMenu, QScrollArea,
+    QFileDialog, QDialog, QMessageBox, QMenu, QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter
@@ -26,6 +26,551 @@ def _is_truthy_flag(value) -> bool:
     """Normalize legacy/new boolean-like values stored in SQLite text fields."""
     return str(value or "").strip().lower() in {"true", "1", "yes", "checked", "y"}
 
+
+_APP_ROOT = Path(__file__).resolve().parent
+_SEVERITY_RANK = {
+    "No DR": 0,
+    "Mild DR": 1,
+    "Moderate DR": 2,
+    "Severe DR": 3,
+    "Proliferative DR": 4,
+}
+
+
+def _parse_datetime_value(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        pass
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _format_screening_datetime_label(value: str) -> str:
+    parsed = _parse_datetime_value(value)
+    if parsed is None:
+        return str(value or "—").strip() or "—"
+    hour = parsed.strftime("%I").lstrip("0") or "0"
+    return f"{parsed.strftime('%B')} {parsed.day}, {parsed.year} - {hour}:{parsed.strftime('%M')} {parsed.strftime('%p').lower()}"
+
+
+def _normalize_severity(value: str) -> str:
+    text = str(value or "").strip()
+    lower = text.lower()
+    if not lower:
+        return ""
+    if "proliferative" in lower or lower == "pdr":
+        return "Proliferative DR"
+    if "severe" in lower:
+        return "Severe DR"
+    if "moderate" in lower:
+        return "Moderate DR"
+    if "mild" in lower:
+        return "Mild DR"
+    if "no dr" in lower or lower == "normal":
+        return "No DR"
+    return text
+
+
+def _display_severity(record: dict) -> str:
+    value = (
+        str(record.get("final_diagnosis_icdr") or "").strip()
+        or str(record.get("doctor_classification") or "").strip()
+        or str(record.get("ai_classification") or "").strip()
+        or str(record.get("result") or "").strip()
+    )
+    return _normalize_severity(value) or "Pending"
+
+
+def _severity_rank_for(value: str) -> int:
+    return _SEVERITY_RANK.get(_normalize_severity(value), -1)
+
+
+def _risk_status_for(value: str) -> tuple[str, str]:
+    rank = _severity_rank_for(value)
+    if rank <= 0:
+        return "Low risk", "#16a34a"
+    if rank == 1:
+        return "Watch closely", "#ca8a04"
+    return "High risk", "#dc2626"
+
+
+def _parse_confidence_metrics(confidence_text: str) -> tuple[str, str, float | None, float | None]:
+    raw = str(confidence_text or "").strip()
+    if not raw:
+        return "Confidence: —", "Uncertainty: —", None, None
+
+    conf_match = __import__("re").search(r"confidence\s*:?\s*(\d+(?:\.\d+)?)\s*%", raw, __import__("re").IGNORECASE)
+    unc_match = __import__("re").search(r"uncertainty\s*:?\s*(\d+(?:\.\d+)?)\s*%", raw, __import__("re").IGNORECASE)
+    conf_pct = float(conf_match.group(1)) if conf_match else None
+    unc_pct = float(unc_match.group(1)) if unc_match else (100.0 - conf_pct if conf_pct is not None else None)
+
+    conf_label = f"Confidence: {conf_pct:.1f}%" if conf_pct is not None else f"Confidence: {raw}"
+    unc_label = f"Uncertainty: {unc_pct:.1f}%" if unc_pct is not None else "Uncertainty: —"
+    return conf_label, unc_label, conf_pct, unc_pct
+
+
+def _resolve_media_path(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw)
+    if path.is_absolute() and path.exists():
+        return str(path)
+    candidate = (_APP_ROOT / raw).resolve()
+    if candidate.exists():
+        return str(candidate)
+    return ""
+
+
+def _timeline_sort_key(record: dict) -> tuple[datetime, int]:
+    parsed = _parse_datetime_value(record.get("screened_at"))
+    return (parsed or datetime.min, int(record.get("id") or 0))
+
+
+class ScreeningComparisonDialog(QDialog):
+    def __init__(self, previous_record: dict, latest_record: dict, parent=None):
+        super().__init__(parent)
+        self.previous_record = previous_record
+        self.latest_record = latest_record
+        self.setWindowTitle("Compare Latest Two Screenings")
+        self.resize(1080, 720)
+
+        previous_result = _display_severity(previous_record)
+        latest_result = _display_severity(latest_record)
+        previous_rank = _severity_rank_for(previous_result)
+        latest_rank = _severity_rank_for(latest_result)
+        delta = latest_rank - previous_rank
+
+        if delta > 1:
+            trend_text = "Rapid deterioration"
+            trend_color = "#dc2626"
+        elif delta > 0:
+            trend_text = "Worsening"
+            trend_color = "#ea580c"
+        elif delta < 0:
+            trend_text = "Improving"
+            trend_color = "#16a34a"
+        else:
+            trend_text = "Stable"
+            trend_color = "#2563eb"
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        title = QLabel("Latest Progression Comparison")
+        title.setStyleSheet("font-size:20px;font-weight:700;color:#0f172a;")
+        layout.addWidget(title)
+
+        summary = QLabel(
+            f"Severity change: <b>{escape(previous_result)}</b> -> <b>{escape(latest_result)}</b> | "
+            f"<span style='color:{trend_color};font-weight:700;'>{trend_text}</span>"
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background:#f8fafc;border:1px solid #dbeafe;border-radius:10px;padding:12px;")
+        layout.addWidget(summary)
+
+        columns = QHBoxLayout()
+        columns.setSpacing(14)
+        layout.addLayout(columns, 1)
+
+        def build_column(record: dict, heading: str) -> QGroupBox:
+            result = _display_severity(record)
+            conf_label, unc_label, _, _ = _parse_confidence_metrics(record.get("confidence"))
+            card = QGroupBox(heading)
+            card.setStyleSheet("QGroupBox{font-weight:700;padding-top:16px;} QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 6px;}")
+            card_layout = QVBoxLayout(card)
+            card_layout.setSpacing(10)
+
+            meta = QLabel(
+                "<br>".join(
+                    [
+                        f"<b>Date:</b> {escape(_format_screening_datetime_label(record.get('screened_at')))}",
+                        f"<b>Eye:</b> {escape(str(record.get('eyes') or '—'))}",
+                        f"<b>Severity:</b> {escape(result)}",
+                        f"<b>{escape(conf_label)}</b>",
+                        f"<b>{escape(unc_label)}</b>",
+                    ]
+                )
+            )
+            meta.setWordWrap(True)
+            meta.setStyleSheet("color:#334155;")
+            card_layout.addWidget(meta)
+
+            for label_text, path_key in (("Fundus Image", "source_image_path"), ("Grad-CAM", "heatmap_image_path")):
+                img = QLabel(label_text)
+                img.setAlignment(Qt.AlignCenter)
+                img.setMinimumHeight(220)
+                img.setStyleSheet("background:#0f172a;color:#e2e8f0;border:1px solid #cbd5e1;border-radius:10px;")
+                img_path = _resolve_media_path(record.get(path_key))
+                if img_path:
+                    pixmap = QPixmap(img_path)
+                    if not pixmap.isNull():
+                        img.setPixmap(
+                            pixmap.scaled(320, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        )
+                card_layout.addWidget(img)
+
+            details = QLabel(
+                "<br>".join(
+                    [
+                        f"<b>AI:</b> {escape(str(record.get('ai_classification') or record.get('result') or '—'))}",
+                        f"<b>Doctor:</b> {escape(str(record.get('doctor_classification') or record.get('result') or '—'))}",
+                        f"<b>Final:</b> {escape(str(record.get('final_diagnosis_icdr') or result or '—'))}",
+                        f"<b>Findings:</b> {escape(str(record.get('doctor_findings') or '—'))}",
+                    ]
+                )
+            )
+            details.setWordWrap(True)
+            details.setStyleSheet("background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;color:#334155;")
+            card_layout.addWidget(details)
+            return card
+
+        columns.addWidget(build_column(previous_record, "Previous Screening"), 1)
+        columns.addWidget(build_column(latest_record, "Latest Screening"), 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, 0, Qt.AlignRight)
+
+
+class PatientTimelineDialog(QDialog):
+    def __init__(
+        self,
+        patient_summary: dict,
+        timeline_records: list[dict],
+        parent=None,
+        on_follow_up=None,
+        on_view_report=None,
+        on_compare=None,
+        on_export=None,
+    ):
+        super().__init__(parent)
+        self.patient_summary = dict(patient_summary or {})
+        self.timeline_records = sorted(list(timeline_records or []), key=_timeline_sort_key)
+        self._selected_record = self.timeline_records[-1] if self.timeline_records else {}
+        self._node_buttons = {}
+        self._on_follow_up = on_follow_up
+        self._on_view_report = on_view_report
+        self._on_compare = on_compare
+        self._on_export = on_export
+
+        patient_name = self.patient_summary.get("name") or "Patient"
+        self.setWindowTitle(f"Patient Timeline - {patient_name}")
+        self.resize(1320, 840)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(14)
+
+        title = QLabel(str(patient_name))
+        title.setStyleSheet("font-size:24px;font-weight:700;color:#0f172a;")
+        root.addWidget(title)
+
+        split = QHBoxLayout()
+        split.setSpacing(16)
+        root.addLayout(split, 1)
+
+        left_card = QGroupBox("Patient Summary")
+        left_card.setMaximumWidth(320)
+        left_layout = QVBoxLayout(left_card)
+        left_layout.setSpacing(10)
+        split.addWidget(left_card, 0)
+
+        latest_result = _display_severity(self._selected_record)
+        risk_text, risk_color = _risk_status_for(latest_result)
+
+        for label_text, value_text in (
+            ("Patient ID", self.patient_summary.get("patient_id") or "—"),
+            ("Name", self.patient_summary.get("name") or "—"),
+            ("Age", self.patient_summary.get("age") or "—"),
+            ("Condition", self.patient_summary.get("diabetes_type") or self.patient_summary.get("condition") or "—"),
+        ):
+            lbl = QLabel(f"<b>{label_text}</b>")
+            lbl.setStyleSheet("color:#64748b;font-size:11px;text-transform:uppercase;")
+            val = QLabel(str(value_text))
+            val.setStyleSheet("color:#1e293b;font-size:14px;font-weight:600;")
+            val.setWordWrap(True)
+            left_layout.addWidget(lbl)
+            left_layout.addWidget(val)
+            left_layout.addSpacing(4)
+
+        left_layout.addSpacing(10)
+        left_layout.addWidget(QLabel("<b>Latest DR Result</b>"))
+        res_lbl = QLabel(latest_result)
+        res_lbl.setStyleSheet(f"color:{risk_color};font-size:18px;font-weight:800;")
+        left_layout.addWidget(res_lbl)
+
+        risk_badge = QLabel(risk_text.upper())
+        risk_badge.setAlignment(Qt.AlignCenter)
+        risk_badge.setMinimumHeight(32)
+        risk_badge.setStyleSheet(
+            f"background:{risk_color}20;color:{risk_color};border:1px solid {risk_color};"
+            "border-radius:6px;font-weight:800;font-size:12px;padding:0 8px;"
+        )
+        left_layout.addWidget(QLabel("<b>Risk Level</b>"))
+        left_layout.addWidget(risk_badge)
+        left_layout.addStretch(1)
+
+        right_col = QVBoxLayout()
+        right_col.setSpacing(12)
+        split.addLayout(right_col, 1)
+
+        if len(self.timeline_records) >= 2:
+            compare_banner = QFrame()
+            compare_banner.setStyleSheet("QFrame{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;}")
+            compare_layout = QHBoxLayout(compare_banner)
+            compare_layout.setContentsMargins(14, 10, 14, 10)
+            compare_layout.addWidget(QLabel("Would you like to compare latest progression?"), 1)
+            compare_btn = QPushButton("Compare Trends")
+            compare_btn.clicked.connect(self._handle_compare)
+            compare_layout.addWidget(compare_btn)
+            right_col.addWidget(compare_banner)
+
+        summary_card = QGroupBox("Clinical Progression Summary")
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setSpacing(6)
+        for line in self._build_progression_summary_lines():
+            label = QLabel(line)
+            label.setWordWrap(True)
+            label.setStyleSheet("color:#334155;")
+            summary_layout.addWidget(label)
+        right_col.addWidget(summary_card)
+
+        timeline_title = QLabel("Timeline Summary")
+        timeline_title.setStyleSheet("font-size:16px;font-weight:700;color:#0f172a;")
+        right_col.addWidget(timeline_title)
+
+        timeline_scroll = QScrollArea()
+        timeline_scroll.setWidgetResizable(True)
+        timeline_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        timeline_host = QWidget()
+        timeline_layout = QVBoxLayout(timeline_host)
+        timeline_layout.setContentsMargins(0, 0, 0, 0)
+        timeline_layout.setSpacing(10)
+
+        for record in self.timeline_records:
+            button = QPushButton(self._node_text(record))
+            button.setCursor(Qt.PointingHandCursor)
+            button.setCheckable(True)
+            button.setMinimumHeight(84)
+            button.setStyleSheet(self._node_style(record, active=False))
+            source_path = _resolve_media_path(record.get("source_image_path"))
+            if source_path:
+                pixmap = QPixmap(source_path)
+                if not pixmap.isNull():
+                    button.setIcon(QIcon(pixmap.scaled(56, 56, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+                    button.setIconSize(QSize(56, 56))
+            button.clicked.connect(lambda checked=False, record_id=int(record.get("id") or 0): self._select_record(record_id))
+            timeline_layout.addWidget(button)
+            self._node_buttons[int(record.get("id") or 0)] = button
+
+        timeline_layout.addStretch(1)
+        timeline_scroll.setWidget(timeline_host)
+        right_col.addWidget(timeline_scroll, 1)
+
+        self.details_card = QGroupBox("Screening Details")
+        details_layout = QVBoxLayout(self.details_card)
+        details_layout.setSpacing(10)
+        self.details_heading = QLabel("")
+        self.details_heading.setStyleSheet("font-size:16px;font-weight:700;color:#0f172a;")
+        details_layout.addWidget(self.details_heading)
+        self.details_body = QLabel("")
+        self.details_body.setWordWrap(True)
+        self.details_body.setTextFormat(Qt.RichText)
+        self.details_body.setStyleSheet("background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;color:#334155;")
+        details_layout.addWidget(self.details_body)
+
+        image_row = QHBoxLayout()
+        image_row.setSpacing(10)
+        self.source_preview = QLabel("Fundus image preview")
+        self.heatmap_preview = QLabel("Grad-CAM preview")
+        for preview in (self.source_preview, self.heatmap_preview):
+            preview.setAlignment(Qt.AlignCenter)
+            preview.setMinimumHeight(220)
+            preview.setStyleSheet("background:#0f172a;color:#e2e8f0;border:1px solid #cbd5e1;border-radius:10px;")
+            image_row.addWidget(preview, 1)
+        details_layout.addLayout(image_row)
+        right_col.addWidget(self.details_card)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+        follow_up_btn = QPushButton("Add Follow-Up Screening")
+        follow_up_btn.clicked.connect(self._handle_follow_up)
+        actions.addWidget(follow_up_btn)
+        report_btn = QPushButton("View Full Report")
+        report_btn.clicked.connect(self._handle_view_report)
+        actions.addWidget(report_btn)
+        compare_btn = QPushButton("Compare Latest Two Screenings")
+        compare_btn.setEnabled(len(self.timeline_records) >= 2)
+        compare_btn.clicked.connect(self._handle_compare)
+        actions.addWidget(compare_btn)
+        export_btn = QPushButton("Export Patient History")
+        export_btn.clicked.connect(self._handle_export)
+        actions.addWidget(export_btn)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        actions.addWidget(close_btn)
+        right_col.addLayout(actions)
+
+        if self._selected_record:
+            self._select_record(int(self._selected_record.get("id") or 0))
+
+    def _build_progression_summary_lines(self) -> list[str]:
+        if not self.timeline_records:
+            return ["No screening history available."]
+
+        severities = [_display_severity(record) for record in self.timeline_records]
+        condensed = []
+        for severity in severities:
+            if not condensed or condensed[-1] != severity:
+                condensed.append(severity)
+
+        initial = condensed[0] if condensed else "Pending"
+        latest = condensed[-1] if condensed else "Pending"
+        risk_text, _ = _risk_status_for(latest)
+
+        # If only one record, don't show progression or trend
+        if len(self.timeline_records) < 2:
+            return [
+                f"Initial condition: {initial}",
+                f"Risk status: {risk_text}",
+            ]
+
+        latest_date = _parse_datetime_value(self.timeline_records[-1].get("screened_at"))
+        first_date = _parse_datetime_value(self.timeline_records[0].get("screened_at"))
+        day_span = (latest_date - first_date).days if latest_date and first_date else None
+
+        start_rank = _severity_rank_for(initial)
+        end_rank = _severity_rank_for(latest)
+        
+        if end_rank - start_rank > 1 and day_span is not None and day_span <= 180:
+            trend = "Trend: Rapid deterioration"
+        elif end_rank > start_rank:
+            trend = "Trend: Progressive worsening"
+        elif end_rank < start_rank:
+            trend = "Trend: Improving"
+        else:
+            trend = "Trend: Stable disease pattern"
+
+        return [
+            f"Initial condition: {initial}",
+            f"Progression detected: {' -> '.join(condensed)}",
+            trend,
+            f"Risk status: {risk_text}",
+        ]
+
+    def _node_text(self, record: dict) -> str:
+        result = _display_severity(record)
+        conf_label, unc_label, _, _ = _parse_confidence_metrics(record.get("confidence"))
+        follow_up_flag = str(record.get("screening_type") or "").strip().lower() == "follow_up"
+        follow_up_suffix = " | Follow-up" if follow_up_flag else ""
+        return "\n".join(
+            [
+                f"Date: {_format_screening_datetime_label(record.get('screened_at'))}",
+                f"{record.get('eyes') or 'Eye not set'} | Result: {result}{follow_up_suffix}",
+                f"{conf_label} | {unc_label}",
+            ]
+        )
+
+    def _node_style(self, record: dict, active: bool) -> str:
+        _, color = _risk_status_for(_display_severity(record))
+        bg = "#eff6ff" if active else "#ffffff"
+        border = color if active else "#dbeafe"
+        return (
+            "QPushButton{"
+            f"background:{bg};color:#0f172a;border:2px solid {border};border-left:8px solid {color};"
+            "border-radius:12px;padding:12px;text-align:left;font-weight:600;"
+            "}"
+            "QPushButton:hover{background:#f8fbff;}"
+        )
+
+    def _select_record(self, record_id: int):
+        chosen = next((record for record in self.timeline_records if int(record.get("id") or 0) == int(record_id)), None)
+        if not chosen:
+            return
+
+        self._selected_record = chosen
+        for rid, button in self._node_buttons.items():
+            is_active = rid == int(record_id)
+            button.setChecked(is_active)
+            button.setStyleSheet(self._node_style(chosen if is_active else next(record for record in self.timeline_records if int(record.get("id") or 0) == rid), is_active))
+
+        result = _display_severity(chosen)
+        conf_label, unc_label, _, _ = _parse_confidence_metrics(chosen.get("confidence"))
+        self.details_heading.setText(f"{_format_screening_datetime_label(chosen.get('screened_at'))} - {chosen.get('eyes') or 'Eye'}")
+
+        symptoms = []
+        if _is_truthy_flag(chosen.get("symptom_blurred_vision")):
+            symptoms.append("Blurred vision")
+        if _is_truthy_flag(chosen.get("symptom_floaters")):
+            symptoms.append("Floaters")
+        if _is_truthy_flag(chosen.get("symptom_flashes")):
+            symptoms.append("Flashes")
+        if _is_truthy_flag(chosen.get("symptom_vision_loss")):
+            symptoms.append("Vision loss")
+
+        details_lines = [
+            f"<b>DR Severity:</b> {escape(result)}",
+            f"<b>{escape(conf_label)}</b>",
+            f"<b>{escape(unc_label)}</b>",
+            f"<b>AI Classification:</b> {escape(str(chosen.get('ai_classification') or chosen.get('result') or '—'))}",
+            f"<b>Doctor Classification:</b> {escape(str(chosen.get('doctor_classification') or chosen.get('result') or '—'))}",
+            f"<b>Final Diagnosis:</b> {escape(str(chosen.get('final_diagnosis_icdr') or result or '—'))}",
+            f"<b>Decision Mode:</b> {escape(str(chosen.get('decision_mode') or 'accepted').title())}",
+            f"<b>Findings:</b> {escape(str(chosen.get('doctor_findings') or '—'))}",
+            f"<b>Symptoms:</b> {escape(', '.join(symptoms) if symptoms else 'None reported')}",
+            f"<b>Clinical Notes:</b> {escape(str(chosen.get('notes') or '—'))}",
+        ]
+
+        if str(chosen.get("screening_type") or "").strip().lower() == "follow_up":
+            details_lines.append("<b>Screening Type:</b> Follow-up")
+        previous_ref = chosen.get("previous_screening_id")
+        if previous_ref:
+            details_lines.append(f"<b>Previous Screening Reference:</b> {escape(str(previous_ref))}")
+
+        self.details_body.setText("<br>".join(details_lines))
+        self._set_preview_image(self.source_preview, chosen.get("source_image_path"), "Fundus image preview")
+        self._set_preview_image(self.heatmap_preview, chosen.get("heatmap_image_path"), "Grad-CAM preview")
+
+    def _set_preview_image(self, label: QLabel, image_value: str, fallback_text: str):
+        label.setPixmap(QPixmap())
+        label.setText(fallback_text)
+        path = _resolve_media_path(image_value)
+        if not path:
+            return
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return
+        label.setText("")
+        label.setPixmap(pixmap.scaled(420, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def _handle_follow_up(self):
+        if callable(self._on_follow_up):
+            self._on_follow_up(self._selected_record)
+
+    def _handle_view_report(self):
+        if callable(self._on_view_report):
+            self._on_view_report(self._selected_record)
+
+    def _handle_compare(self):
+        if callable(self._on_compare):
+            self._on_compare(self.timeline_records)
+
+    def _handle_export(self):
+        if callable(self._on_export):
+            self._on_export(self.timeline_records)
 
 class PatientDetailsDialog(QDialog):
     """Read-only dialog displaying full patient screening details without fundus image."""
@@ -643,7 +1188,7 @@ class ReportsPage(QWidget):
         self.referral_btn = QPushButton("Generate Referral")
         self.referral_btn.setEnabled(False)
         self.referral_btn.clicked.connect(self.start_referral_flow)
-        self.rescreen_btn = QPushButton("Rescreen")
+        self.rescreen_btn = QPushButton("Add Follow-Up Screening")
         self.rescreen_btn.setEnabled(False)
         self.rescreen_btn.clicked.connect(self.rescreen_patient)
 
@@ -760,7 +1305,7 @@ class ReportsPage(QWidget):
         self.export_btn.setToolTip("Export currently visible report rows to CSV")
         self.report_btn.setToolTip("Generate a detailed PDF report for the selected patient")
         self.referral_btn.setToolTip("Generate a referral letter PDF for the selected patient")
-        self.rescreen_btn.setToolTip("Rescreen the selected patient")
+        self.rescreen_btn.setToolTip("Add a follow-up screening for the selected patient")
         if self.archived_records_btn is not None:
             self._set_button_icon(self.archived_records_btn, "archives.svg")
             self.archived_records_btn.setText("Archived Records")
@@ -1104,10 +1649,10 @@ class ReportsPage(QWidget):
         self.rescreen_btn.setEnabled(can_rescreen)
         if record and not can_rescreen:
             self.rescreen_btn.setToolTip(
-                f"Only the original screener ({self._record_owner_label(record)}) can rescreen this case."
+                f"Only the original screener ({self._record_owner_label(record)}) can add a follow-up for this case."
             )
         else:
-            self.rescreen_btn.setToolTip("Start a new screening for the selected patient")
+            self.rescreen_btn.setToolTip("Start a new follow-up screening for the selected patient")
         if self.archive_btn is not None:
             can_archive = bool(record and not record.get("archived_at") and self._can_archive_record(record))
             self.archive_btn.setEnabled(can_archive)
@@ -1131,28 +1676,225 @@ class ReportsPage(QWidget):
         self._show_patient_details()
 
     def _show_patient_details(self):
-        """Show view-only patient details dialog."""
+        """Open the patient timeline summary dialog from the selected report row."""
         record = self._get_selected_record()
         if not record:
             return
-        
-        record_id = record.get("id") or (record.get("record_ids")[0] if record.get("record_ids") else None)
-        if not record_id:
-            QMessageBox.warning(self, "Patient Details", "Unable to retrieve patient record.")
-            return
-        
-        full_record = self._fetch_full_patient_record(record_id)
-        if not full_record:
-            QMessageBox.warning(self, "Patient Details", "Unable to load patient details.")
+
+        patient_id = str(record.get("patient_id") or "").strip()
+        if not patient_id:
+            QMessageBox.warning(self, "Patient Timeline", "Unable to retrieve patient history.")
             return
 
+        timeline_records = self._fetch_patient_timeline_records(patient_id)
+        if not timeline_records:
+            QMessageBox.warning(self, "Patient Timeline", "Unable to load patient timeline.")
+            return
+
+        latest_record = timeline_records[-1]
         UserManager.add_activity_log(
             self.username,
-            f"RECORD_OPENED patient_id={full_record.get('patient_id')}; record_id={record_id}; source=reports",
+            f"RECORD_OPENED patient_id={patient_id}; record_id={latest_record.get('id')}; source=reports_timeline",
         )
-        
-        dialog = PatientDetailsDialog(full_record, self)
+
+        dialog = PatientTimelineDialog(
+            latest_record,
+            timeline_records,
+            self,
+            on_follow_up=self._start_follow_up_from_timeline,
+            on_view_report=self._generate_report_for_record,
+            on_compare=self._compare_latest_two_screenings,
+            on_export=self._export_patient_history,
+        )
         dialog.exec()
+
+    def _fetch_patient_timeline_records(self, patient_id: str) -> list[dict]:
+        patient_id = str(patient_id or "").strip()
+        if not patient_id:
+            return []
+
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id, patient_id, name, birthdate, age, sex, contact, eyes,
+                       diabetes_type, duration, hba1c, prev_treatment, notes,
+                       result, confidence, screened_at, archived_at, archived_by,
+                       archive_reason, original_screener_username, original_screener_name,
+                       ai_classification, doctor_classification, decision_mode, override_justification, final_diagnosis_icdr, doctor_findings,
+                       height, weight, bmi, visual_acuity_left, visual_acuity_right,
+                       blood_pressure_systolic, blood_pressure_diastolic,
+                       fasting_blood_sugar, random_blood_sugar,
+                       diabetes_diagnosis_date, treatment_regimen, prev_dr_stage,
+                       symptom_blurred_vision, symptom_floaters, symptom_flashes, symptom_vision_loss,
+                       source_image_path, heatmap_image_path,
+                       follow_up, followup_date, followup_label, screening_type, previous_screening_id
+                FROM patient_records
+                WHERE patient_id = ? AND archived_at IS NULL
+                ORDER BY screened_at ASC, id ASC
+                """,
+                (patient_id,),
+            )
+            rows = cur.fetchall()
+            conn.close()
+        except Exception as err:
+            QMessageBox.warning(self, "Patient Timeline", f"Failed to load patient history: {err}")
+            return []
+
+        timeline = []
+        for row in rows:
+            timeline.append(
+                {
+                    "id": row[0],
+                    "patient_id": row[1],
+                    "name": row[2],
+                    "birthdate": row[3],
+                    "age": row[4],
+                    "sex": row[5],
+                    "contact": row[6],
+                    "eyes": row[7],
+                    "diabetes_type": row[8],
+                    "duration": row[9],
+                    "hba1c": row[10],
+                    "prev_treatment": row[11],
+                    "notes": row[12],
+                    "result": row[13],
+                    "confidence": row[14],
+                    "screened_at": row[15],
+                    "archived_at": row[16],
+                    "archived_by": row[17],
+                    "archive_reason": row[18],
+                    "original_screener_username": row[19],
+                    "original_screener_name": row[20],
+                    "ai_classification": row[21],
+                    "doctor_classification": row[22],
+                    "decision_mode": row[23],
+                    "override_justification": row[24],
+                    "final_diagnosis_icdr": row[25],
+                    "doctor_findings": row[26],
+                    "height": row[27],
+                    "weight": row[28],
+                    "bmi": row[29],
+                    "visual_acuity_left": row[30],
+                    "visual_acuity_right": row[31],
+                    "blood_pressure_systolic": row[32],
+                    "blood_pressure_diastolic": row[33],
+                    "fasting_blood_sugar": row[34],
+                    "random_blood_sugar": row[35],
+                    "diabetes_diagnosis_date": row[36],
+                    "treatment_regimen": row[37],
+                    "prev_dr_stage": row[38],
+                    "symptom_blurred_vision": row[39],
+                    "symptom_floaters": row[40],
+                    "symptom_flashes": row[41],
+                    "symptom_vision_loss": row[42],
+                    "source_image_path": row[43],
+                    "heatmap_image_path": row[44],
+                    "follow_up": row[45],
+                    "followup_date": row[46],
+                    "followup_label": row[47],
+                    "screening_type": row[48],
+                    "previous_screening_id": row[49],
+                }
+            )
+        return timeline
+
+    def _start_follow_up_from_timeline(self, record: dict):
+        if not record:
+            QMessageBox.information(self, "Follow-Up Screening", "Choose a timeline record first.")
+            return
+
+        main_window = self.window()
+        if not hasattr(main_window, "screening_page") or not hasattr(main_window, "pages"):
+            QMessageBox.warning(self, "Follow-Up Screening", "Unable to open the screening page.")
+            return
+
+        record_id = int(record.get("id") or 0)
+        if record_id <= 0:
+            QMessageBox.warning(self, "Follow-Up Screening", "Unable to determine the source screening record.")
+            return
+
+        screening_page = main_window.screening_page
+        if not hasattr(screening_page, "load_patient_for_followup"):
+            QMessageBox.warning(self, "Follow-Up Screening", "Follow-up workflow is not available in this session.")
+            return
+
+        if not screening_page.load_patient_for_followup(record_id):
+            QMessageBox.warning(self, "Follow-Up Screening", "Unable to prepare the follow-up screening form.")
+            return
+
+        main_window.pages.setCurrentIndex(1)
+        UserManager.add_activity_log(
+            self.username,
+            f"FOLLOW_UP_STARTED patient_id={record.get('patient_id')}; previous_record_id={record_id}",
+        )
+
+    def _compare_latest_two_screenings(self, timeline_records: list[dict]):
+        ordered = sorted(list(timeline_records or []), key=_timeline_sort_key)
+        if len(ordered) < 2:
+            QMessageBox.information(self, "Compare Screenings", "At least two screenings are required for comparison.")
+            return
+
+        dialog = ScreeningComparisonDialog(ordered[-2], ordered[-1], self)
+        dialog.exec()
+
+    def _export_patient_history(self, timeline_records: list[dict]):
+        ordered = sorted(list(timeline_records or []), key=_timeline_sort_key)
+        if not ordered:
+            QMessageBox.information(self, "Export Patient History", "No patient history is available to export.")
+            return
+
+        patient_name = str(ordered[-1].get("name") or "Patient").strip() or "Patient"
+        patient_id = str(ordered[-1].get("patient_id") or "Unknown").strip() or "Unknown"
+        default_name = f"EyeShield_History_{patient_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Export Patient History", default_name, "CSV Files (*.csv)")
+        if not path:
+            return
+
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "Record ID",
+                        "Patient ID",
+                        "Name",
+                        "Screened At",
+                        "Eye",
+                        "AI Classification",
+                        "Doctor Classification",
+                        "Final Diagnosis",
+                        "Confidence",
+                        "Decision Mode",
+                        "Screening Type",
+                        "Previous Screening ID",
+                        "Findings",
+                    ]
+                )
+                for record in ordered:
+                    writer.writerow(
+                        [
+                            record.get("id"),
+                            record.get("patient_id"),
+                            record.get("name"),
+                            record.get("screened_at"),
+                            record.get("eyes"),
+                            record.get("ai_classification") or record.get("result"),
+                            record.get("doctor_classification") or record.get("result"),
+                            record.get("final_diagnosis_icdr") or record.get("doctor_classification") or record.get("result"),
+                            record.get("confidence"),
+                            record.get("decision_mode"),
+                            record.get("screening_type") or ("follow_up" if _is_truthy_flag(record.get("follow_up")) else "initial"),
+                            record.get("previous_screening_id"),
+                            record.get("doctor_findings"),
+                        ]
+                    )
+        except OSError as err:
+            QMessageBox.warning(self, "Export Patient History", f"Unable to export history: {err}")
+            return
+
+        self.status_label.setText(f"Exported patient history for {patient_name} to {path}")
 
     def _fetch_full_patient_record(self, record_id: int) -> dict:
         """Fetch complete patient record from database."""
@@ -1264,42 +2006,42 @@ class ReportsPage(QWidget):
         self.refresh_report()
 
     def rescreen_patient(self):
-        """Open rescreen dialog and navigate to screening page."""
+        """Open follow-up screening dialog and navigate to screening page."""
         record = self._get_selected_record()
         if not record:
-            QMessageBox.information(self, "Rescreen Patient", "Select a patient record to rescreen.")
+            QMessageBox.information(self, "Add Follow-Up Screening", "Select a patient record first.")
             return
 
         if not self._can_rescreen_record(record):
             owner_text = self._record_owner_label(record)
             UserManager.add_activity_log(
                 self.username,
-                f"RESCREEN_BLOCKED patient_id={record.get('patient_id')}; owner={owner_text}",
+                f"FOLLOW_UP_BLOCKED patient_id={record.get('patient_id')}; owner={owner_text}",
             )
             QMessageBox.warning(
                 self,
-                "Rescreen Restricted",
-                f"Only the original screening doctor ({owner_text}) can rescreen this patient.",
+                "Action Restricted",
+                f"Only the original screening doctor ({owner_text}) can add a follow-up for this patient.",
             )
             return
 
         # Get the actual record ID - use first record_id if multiple exist
         record_ids = record.get("record_ids") or [record.get("id")]
         if not record_ids or not record_ids[0]:
-            QMessageBox.warning(self, "Rescreen Patient", "Unable to identify patient record ID.")
+            QMessageBox.warning(self, "Add Follow-Up Screening", "Unable to identify patient record ID.")
             return
 
         actual_record_id = record_ids[0]
 
         label = f"{record['name'] or 'Unknown Patient'} ({record['patient_id'] or 'No ID'})"
         box = QMessageBox(self)
-        box.setWindowTitle("Rescreen Patient")
+        box.setWindowTitle("Add Follow-Up Screening")
         box.setIcon(QMessageBox.Icon.Question)
         box.setText(
-            f"How would you like to rescreen <b>{label}</b>?"
+            f"How would you like to add a follow-up screening for <b>{label}</b>?"
         )
-        new_btn = box.addButton("Create New Screening", QMessageBox.ButtonRole.AcceptRole)
-        replace_btn = box.addButton("Replace Screening Record", QMessageBox.ButtonRole.ActionRole)
+        new_btn = box.addButton("Create New Screening Session", QMessageBox.ButtonRole.AcceptRole)
+        replace_btn = box.addButton("Replace Previous Record", QMessageBox.ButtonRole.ActionRole)
         cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(cancel_btn)
         box.exec()
@@ -1707,6 +2449,13 @@ class ReportsPage(QWidget):
         record = self._get_selected_record()
         if not record:
             QMessageBox.information(self, "Generate Report", "Select a patient record to generate a report for.")
+            return
+
+        self._generate_report_for_record(record)
+
+    def _generate_report_for_record(self, record: dict):
+        if not record:
+            QMessageBox.information(self, "Generate Report", "No patient record is available for report generation.")
             return
 
         patient_name_raw = str(record.get("name") or "Patient").strip()

@@ -41,7 +41,10 @@ from logic_improvements import (
     DuplicateDetector,
     DuplicateDialog,
 )
-from auth import DB_FILE, UserManager
+from auth import UserManager
+
+# Use the correct database for patient records
+DB_FILE = "patient_records.db"
 from safety_runtime import get_autosave_draft_path, safe_remove_file, write_activity
 
 
@@ -573,6 +576,11 @@ class ScreeningPage(QWidget):
         self._suspend_eye_guard = False
         self._navigation_locked = False
         self._rescreen_replace_record_id = None
+        self._current_screening_type = ""
+        self._current_previous_screening_id = None
+        self._current_follow_up_flag = ""
+        self._current_followup_date = ""
+        self._current_followup_label = ""
         self._flow_guard = ScreeningFlowGuard(self)
         self._duplicate_detector = DuplicateDetector()
         self._draft_path = get_autosave_draft_path()
@@ -761,14 +769,47 @@ class ScreeningPage(QWidget):
     def create_unified_page(self):
         root = QWidget()
         root.setStyleSheet(_REDESIGN_STYLESHEET)
-        root_layout = QHBoxLayout(root)
+        root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(20, 20, 20, 20)
-        root_layout.setSpacing(8)
+        root_layout.setSpacing(12)
+
+        # Follow-up Context Header
+        self.followup_header = QFrame()
+        self.followup_header.setObjectName("followupHeader")
+        self.followup_header.setStyleSheet("""
+            QFrame#followupHeader {
+                background: #f0f7ff;
+                border: 1.5px solid #3b82f6;
+                border-radius: 12px;
+            }
+        """)
+        self.followup_header.hide()
+        fh_layout = QHBoxLayout(self.followup_header)
+        fh_layout.setContentsMargins(16, 10, 16, 10)
+        
+        self.followup_label = QLabel("Follow-Up Screening for Patient: ")
+        self.followup_label.setStyleSheet("font-size: 14px; font-weight: 700; color: #1e40af;")
+        fh_layout.addWidget(self.followup_label)
+        fh_layout.addStretch()
+        
+        exit_followup_btn = QPushButton("Exit Follow-Up")
+        exit_followup_btn.setObjectName("btnDanger")
+        exit_followup_btn.setFixedWidth(120)
+        exit_followup_btn.clicked.connect(self.reset_screening)
+        fh_layout.addWidget(exit_followup_btn)
+        
+        root_layout.addWidget(self.followup_header)
+
+        content_root = QWidget()
+        content_layout = QHBoxLayout(content_root)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+        root_layout.addWidget(content_root)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(0)
-        root_layout.addWidget(splitter)
+        content_layout.addWidget(splitter)
 
         def make_card():
             frame = QFrame()
@@ -1806,6 +1847,16 @@ class ScreeningPage(QWidget):
             self.clear_image()
             self.stacked_widget.setCurrentIndex(0)
 
+    def _set_patient_context_locked(self, locked: bool):
+        """Lock demographics fields during follow-up to prevent patient switching."""
+        self.p_name.setReadOnly(locked)
+        self.p_contact.setReadOnly(locked)
+        if isinstance(self.p_dob, QDateEdit):
+            self.p_dob.setReadOnly(locked)
+        else:
+            self.p_dob.setReadOnly(locked)
+        self.p_sex.setEnabled(not locked)
+
     def reset_screening(self):
         if self._guard_busy_action("starting a new screening"):
             return
@@ -1821,6 +1872,16 @@ class ScreeningPage(QWidget):
             )
             if confirm != QMessageBox.StandardButton.Yes:
                 return
+
+        self._set_patient_context_locked(False)
+        if hasattr(self, "followup_header"):
+            self.followup_header.hide()
+        
+        self._current_screening_type = ""
+        self._current_previous_screening_id = None
+        self._current_follow_up_flag = ""
+        self._current_followup_date = ""
+        self._current_followup_label = ""
 
         self.generate_patient_id()
         self.p_name.clear()
@@ -1876,6 +1937,11 @@ class ScreeningPage(QWidget):
         self._current_eye_saved = False
         self._first_eye_result = None
         self._rescreen_replace_record_id = None
+        self._current_screening_type = ""
+        self._current_previous_screening_id = None
+        self._current_follow_up_flag = ""
+        self._current_followup_date = ""
+        self._current_followup_label = ""
         self._flow_guard.reset()
         self._set_navigation_locked(False)
         self.btn_analyze.setEnabled(False)
@@ -1944,7 +2010,9 @@ class ScreeningPage(QWidget):
                        symptom_blurred_vision, symptom_floaters,
                        symptom_flashes, symptom_vision_loss,
                        source_image_path, heatmap_image_path,
-                       image_sha256, image_saved_at
+                       image_sha256, image_saved_at,
+                       height, weight, bmi, treatment_regimen, prev_dr_stage, diabetes_diagnosis_date,
+                       follow_up, followup_date, followup_label, screening_type, previous_screening_id
                 FROM patient_records WHERE id = ?
             """, (record_id,))
             row = cur.fetchone()
@@ -1965,7 +2033,9 @@ class ScreeningPage(QWidget):
              symptom_blurred, symptom_floaters,
              symptom_flashes, symptom_vision_loss,
              source_image_path, heatmap_image_path,
-             image_sha256, image_saved_at) = row
+             image_sha256, image_saved_at,
+             height_val, weight_val, bmi_val, treat_reg, prev_dr, diag_date,
+             follow_up_flag, followup_date, followup_label, screening_type, previous_screening_id) = row
 
             # Load data from record with safe type conversion
             self.p_id.setText(str(patient_id or ""))
@@ -2041,6 +2111,71 @@ class ScreeningPage(QWidget):
             except Exception:
                 self.prev_treatment.setChecked(False)
 
+            # Mapping for newly added fields
+            try:
+                self.va_left.setText(str(va_left or ""))
+                self.va_right.setText(str(va_right or ""))
+                
+                # Safe int conversion for blood pressure
+                try:
+                    self.bp_systolic.setValue(int(float(str(bp_sys or 0))))
+                except (ValueError, TypeError):
+                    self.bp_systolic.setValue(0)
+                try:
+                    self.bp_diastolic.setValue(int(float(str(bp_dia or 0))))
+                except (ValueError, TypeError):
+                    self.bp_diastolic.setValue(0)
+                
+                # Safe int conversion for blood glucose
+                try:
+                    self.fbs.setValue(int(float(str(fbs or 0))))
+                except (ValueError, TypeError):
+                    self.fbs.setValue(0)
+                try:
+                    self.rbs.setValue(int(float(str(rbs or 0))))
+                except (ValueError, TypeError):
+                    self.rbs.setValue(0)
+                
+                # Symptoms mapping
+                self.symptom_blurred.setChecked(str(symptom_blurred or "").lower() == "yes")
+                self.symptom_floaters.setChecked(str(symptom_floaters or "").lower() == "yes")
+                self.symptom_flashes.setChecked(str(symptom_flashes or "").lower() == "yes")
+                self.symptom_vision_loss.setChecked(str(symptom_vision_loss or "").lower() == "yes")
+
+                # Height, Weight, BMI
+                try:
+                    self.height.setValue(float(str(height_val or 0.0)))
+                except (ValueError, TypeError):
+                    self.height.setValue(0.0)
+                try:
+                    self.weight.setValue(float(str(weight_val or 0.0)))
+                except (ValueError, TypeError):
+                    self.weight.setValue(0.0)
+                try:
+                    self.bmi.setValue(float(str(bmi_val or 0.0)))
+                except (ValueError, TypeError):
+                    self.bmi.setValue(0.0)
+                
+                # Treatment regimen
+                treat_str = str(treat_reg or "").strip()
+                if treat_str and self.treatment_regimen.findText(treat_str) >= 0:
+                    self.treatment_regimen.setCurrentText(treat_str)
+                else:
+                    self.treatment_regimen.setCurrentIndex(0)
+                
+                # Previous DR Stage
+                prev_dr_str = str(prev_dr or "").strip()
+                if prev_dr_str and self.prev_dr_stage.findText(prev_dr_str) >= 0:
+                    self.prev_dr_stage.setCurrentText(prev_dr_str)
+                else:
+                    self.prev_dr_stage.setCurrentIndex(0)
+                
+                # Diagnosis Date
+                self.diabetes_diagnosis_date.setText(str(diag_date or ""))
+
+            except Exception as e:
+                write_activity("WARNING", "LOAD_RESCREEN_MAPPING_PARTIAL", f"Error mapping clinical fields: {str(e)}")
+
             self.notes.setPlainText(str(notes or ""))
             self.last_ai_classification = str(ai_classification or result or "Pending")
             self.last_doctor_classification = str(doctor_classification or final_diagnosis_icdr or result or "Pending")
@@ -2055,7 +2190,10 @@ class ScreeningPage(QWidget):
                 self.results_page.override_reason_input.setText(self.last_override_justification)
                 self.results_page.findings_input.setText(self.last_doctor_findings)
                 if self.last_doctor_classification in ("No DR", "Mild DR", "Moderate DR", "Severe DR", "Proliferative DR"):
-                    self.results_page.doctor_classification_combo.setCurrentText(self.last_doctor_classification)
+                    if hasattr(self.results_page, "doctor_classification_combo"):
+                        self.results_page.doctor_classification_combo.setCurrentText(self.last_doctor_classification)
+                    elif hasattr(self.results_page, "doctor_classification_input"):
+                        self.results_page.doctor_classification_input.setText(self.last_doctor_classification)
                 self.results_page._refresh_decision_ui_state()
 
             # Set eye based on previous record - match against available options
@@ -2093,6 +2231,11 @@ class ScreeningPage(QWidget):
 
             # Store replace mode flag
             self._rescreen_replace_record_id = record_id if replace_mode else None
+            self._current_screening_type = str(screening_type or "").strip()
+            self._current_previous_screening_id = int(previous_screening_id) if str(previous_screening_id or "").strip() else None
+            self._current_follow_up_flag = str(follow_up_flag or "").strip()
+            self._current_followup_date = str(followup_date or "").strip()
+            self._current_followup_label = str(followup_label or "").strip()
 
             write_activity("INFO", "LOAD_RESCREEN", f"Loaded patient for rescreening: record_id={record_id}, replace_mode={replace_mode}")
             return True
@@ -2101,6 +2244,32 @@ class ScreeningPage(QWidget):
             err_detail = traceback.format_exc()
             write_activity("ERROR", "LOAD_RESCREEN_FAILED", f"Exception: {type(e).__name__}: {str(e)} | {err_detail}")
             return False
+
+    def load_patient_for_followup(self, record_id: int) -> bool:
+        """Load an existing patient and continue the case as a follow-up screening."""
+        if not self.load_patient_for_rescreen(record_id, replace_mode=False):
+            return False
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._rescreen_replace_record_id = None
+        self._current_screening_type = "follow_up"
+        self._current_previous_screening_id = int(record_id)
+        self._current_follow_up_flag = "Yes"
+        self._current_followup_date = timestamp
+        self._current_followup_label = "Follow-up screening"
+        
+        # Show follow-up header
+        if hasattr(self, "followup_header"):
+            name = self.p_name.text().strip() or "Unknown"
+            pid = self.p_id.text().strip() or "No ID"
+            self.followup_label.setText(f"Follow-Up Screening for Patient: {name} ({pid})")
+            self.followup_header.show()
+        
+        # Lock patient context
+        self._set_patient_context_locked(True)
+        
+        write_activity("INFO", "LOAD_FOLLOW_UP", f"Loaded patient for follow-up: record_id={record_id}")
+        return True
 
     def upload_image(self):
         if self._guard_busy_action("uploading a new image"):
@@ -2442,6 +2611,20 @@ class ScreeningPage(QWidget):
             heatmap_pending=False,
         )
 
+        # Handle follow-up progression summary
+        if hasattr(self, "_current_previous_screening_id") and self._current_previous_screening_id:
+            try:
+                conn = sqlite3.connect(DB_FILE)
+                cur = conn.cursor()
+                cur.execute("SELECT result FROM patient_records WHERE id = ?", (self._current_previous_screening_id,))
+                row = cur.fetchone()
+                conn.close()
+                if row:
+                    prev_result = row[0]
+                    self.results_page.set_progression_info(prev_result, label)
+            except Exception as e:
+                write_activity("WARNING", "PROGRESSION_SUMMARY_FAILED", f"Error fetching previous result: {str(e)}")
+
     def _on_inference_error(self, message: str):
         self._set_navigation_locked(False)
         self.btn_analyze.setEnabled(True)
@@ -2661,7 +2844,10 @@ class ScreeningPage(QWidget):
             self.results_page.override_reason_input.setText(self.last_override_justification)
             self.results_page.findings_input.setText(self.last_doctor_findings)
             if self.last_doctor_classification in ("No DR", "Mild DR", "Moderate DR", "Severe DR", "Proliferative DR"):
-                self.results_page.doctor_classification_combo.setCurrentText(self.last_doctor_classification)
+                if hasattr(self.results_page, "doctor_classification_combo"):
+                    self.results_page.doctor_classification_combo.setCurrentText(self.last_doctor_classification)
+                elif hasattr(self.results_page, "doctor_classification_input"):
+                    self.results_page.doctor_classification_input.setText(self.last_doctor_classification)
             self.results_page._refresh_decision_ui_state()
         self._current_eye_saved = bool(data.get("result_saved"))
         write_activity("INFO", "RESTORE_DRAFT", f"Draft restored from {self._draft_path}")
@@ -2789,7 +2975,7 @@ class ScreeningPage(QWidget):
             return "new_session"
         return "cancel"
 
-    def _update_screening_record(self, record_id: int, patient_data, screener_username: str, screener_name: str) -> tuple[bool, str]:
+    def _update_screening_record(self, record_id: int, patient_data, screener_username: str, screener_name: str) -> tuple[bool, str, int | None]:
         try:
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
@@ -2810,6 +2996,7 @@ class ScreeningPage(QWidget):
                     source_image_path = ?, heatmap_image_path = ?,
                     image_sha256 = ?, image_saved_at = ?,
                     height = ?, weight = ?, bmi = ?, treatment_regimen = ?, prev_dr_stage = ?,
+                    follow_up = ?, followup_date = ?, followup_label = ?, screening_type = ?, previous_screening_id = ?,
                     original_screener_username = COALESCE(NULLIF(original_screener_username, ''), ?),
                     original_screener_name = COALESCE(NULLIF(original_screener_name, ''), ?)
                 WHERE id = ?
@@ -2820,12 +3007,12 @@ class ScreeningPage(QWidget):
             updated = cur.rowcount > 0
             conn.close()
             if not updated:
-                return False, "No matching record was updated."
-            return True, ""
+                return False, "No matching record was updated.", None
+            return True, "", int(record_id)
         except Exception as exc:
             err = f"{type(exc).__name__}: {exc}"
             write_activity("ERROR", "SAVE_UPDATE_FAILED", err)
-            return False, err
+            return False, err, None
 
     def save_screening(self, reset_after=True):
         if self._guard_busy_action("saving the result"):
@@ -2881,6 +3068,20 @@ class ScreeningPage(QWidget):
         self.last_decision_mode = decision_mode
         self.last_override_justification = override_justification
         self.last_doctor_findings = doctor_findings
+        screening_type = str(self._current_screening_type or "").strip() or "initial"
+        previous_screening_id = self._current_previous_screening_id
+        follow_up_flag = str(self._current_follow_up_flag or "").strip()
+        followup_date = str(self._current_followup_date or "").strip()
+        followup_label = str(self._current_followup_label or "").strip()
+        if screening_type == "follow_up":
+            follow_up_flag = follow_up_flag or "Yes"
+            followup_date = followup_date or decision_at
+            followup_label = followup_label or "Follow-up screening"
+        else:
+            follow_up_flag = ""
+            followup_date = ""
+            followup_label = ""
+            previous_screening_id = None
 
         # New fields
         va_left = self.va_left.text().strip()
@@ -2945,6 +3146,8 @@ class ScreeningPage(QWidget):
             "bmi": bmi_val,
             "treatment_regimen": treatment_regimen,
             "prev_dr_stage": prev_dr_stage,
+            "screening_type": screening_type,
+            "previous_screening_id": previous_screening_id,
         }
         initial_signature = hashlib.sha256(
             json.dumps(initial_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
@@ -2958,6 +3161,8 @@ class ScreeningPage(QWidget):
         if self._rescreen_replace_record_id is not None:
             replace_record_id = self._rescreen_replace_record_id
             self._rescreen_replace_record_id = None  # Clear flag after use
+        elif screening_type == "follow_up" and previous_screening_id:
+            replace_record_id = None
         else:
             # Standard duplicate detection
             existing_eye_record = self._find_existing_eye_record(pid, eye)
@@ -3010,6 +3215,8 @@ class ScreeningPage(QWidget):
             "bmi": bmi_val,
             "treatment_regimen": treatment_regimen,
             "prev_dr_stage": prev_dr_stage,
+            "screening_type": screening_type,
+            "previous_screening_id": previous_screening_id,
         }
         pre_signature = hashlib.sha256(
             json.dumps(pre_signature_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
@@ -3088,9 +3295,14 @@ class ScreeningPage(QWidget):
             bmi_val,
             treatment_regimen,
             prev_dr_stage,
+            follow_up_flag,
+            followup_date,
+            followup_label,
+            screening_type,
+            previous_screening_id if previous_screening_id is not None else "",
         ]
 
-        save_ok, save_error = (
+        save_ok, save_error, saved_record_id = (
             self._update_screening_record(replace_record_id, patient_data, screener_username, screener_name)
             if replace_record_id is not None
             else self._save_screening_to_db(patient_data, screener_username, screener_name)
@@ -3106,6 +3318,7 @@ class ScreeningPage(QWidget):
             write_activity("ERROR", "SAVE_FAILED", f"Database {action_label} failed: {detail}")
             return {"status": "error", "error": detail}
 
+        self._last_saved_record_id = saved_record_id
         self._current_eye_saved = True
         self._last_saved_signature = pre_signature
         self._last_saved_at = image_saved_at
@@ -3154,6 +3367,27 @@ class ScreeningPage(QWidget):
                 "heatmap_path": getattr(self.results_page, '_current_heatmap_path', '') or '',
             }
             self.results_page.mark_saved(self.p_name.text().strip(), eye_label, self.last_result_class)
+
+            # Auto-prompt to compare if follow-up
+            if screening_type == "follow_up" and previous_screening_id:
+                box = QMessageBox(self)
+                box.setWindowTitle("Follow-up Completed")
+                box.setIcon(QMessageBox.Icon.Information)
+                box.setText(
+                    f"<b>{eye_label}</b> follow-up screening saved successfully.\n\n"
+                    f"Would you like to compare this result with the previous screening?"
+                )
+                compare_btn = box.addButton("Compare Results", QMessageBox.ButtonRole.AcceptRole)
+                box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+                box.exec()
+                if box.clickedButton() == compare_btn:
+                    # Logic to trigger comparison view (if available in current scope)
+                    if hasattr(self, "parent_dashboard") and hasattr(self.parent_dashboard, "reports_page"):
+                        # We can navigate to reports and trigger comparison there
+                        self.parent_dashboard.reports_page.open_comparison_dialog(
+                            int(previous_screening_id), 
+                            int(self._last_saved_record_id) if hasattr(self, "_last_saved_record_id") else 0
+                        )
 
             # Auto-prompt to screen the other eye (only if first eye, not second)
             if not self._first_eye_result.get('_is_second_eye'):
@@ -3273,6 +3507,11 @@ class ScreeningPage(QWidget):
         bmi_v = self.bmi.value()
         treatment_reg = self.treatment_regimen.currentText()
         prev_dr = self.prev_dr_stage.currentText()
+        current_screening_type = self._current_screening_type
+        current_previous_screening_id = self._current_previous_screening_id
+        current_follow_up_flag = self._current_follow_up_flag
+        current_followup_date = self._current_followup_date
+        current_followup_label = self._current_followup_label
 
         # Preserve first eye result across reset so results page can show bilateral comparison
         saved_first_eye_result = self._first_eye_result
@@ -3327,6 +3566,11 @@ class ScreeningPage(QWidget):
         self.bmi.setValue(bmi_v)
         self.treatment_regimen.setCurrentText(treatment_reg)
         self.prev_dr_stage.setCurrentText(prev_dr)
+        self._current_screening_type = current_screening_type
+        self._current_previous_screening_id = current_previous_screening_id
+        self._current_follow_up_flag = current_follow_up_flag
+        self._current_followup_date = current_followup_date
+        self._current_followup_label = current_followup_label
 
         # Pre-select the opposite eye for bilateral workflow continuity.
         self._set_eye_selection(opposite_eye)
@@ -3334,7 +3578,7 @@ class ScreeningPage(QWidget):
         # Return to intake form — only the image needs to be uploaded
         self.stacked_widget.setCurrentIndex(0)
 
-    def _save_screening_to_db(self, patient_data, screener_username: str, screener_name: str) -> tuple[bool, str]:
+    def _save_screening_to_db(self, patient_data, screener_username: str, screener_name: str) -> tuple[bool, str, int | None]:
         try:
             conn = sqlite3.connect(DB_FILE)
             cur = conn.cursor()
@@ -3355,18 +3599,20 @@ class ScreeningPage(QWidget):
                     source_image_path, heatmap_image_path,
                     image_sha256, image_saved_at,
                     height, weight, bmi, treatment_regimen, prev_dr_stage,
+                    follow_up, followup_date, followup_label, screening_type, previous_screening_id,
                     original_screener_username, original_screener_name
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [*patient_data, screener_username, screener_name],
             )
+            new_id = cur.lastrowid
             conn.commit()
             conn.close()
-            return True, ""
+            return True, "", new_id
         except Exception as exc:
             err = f"{type(exc).__name__}: {exc}"
             write_activity("ERROR", "SAVE_INSERT_FAILED", err)
-            return False, err
+            return False, err, None
 
     def showEvent(self, event):
         super().showEvent(event)
